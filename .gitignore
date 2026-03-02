@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Logs
+logs/
+
+# Model files (large binaries — not tracked in git)
+models/*.tflite
+models/*.task
+
+# Data / videos
+data/
+test_videos/
+test_frame.jpg
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code local config
+.claude/

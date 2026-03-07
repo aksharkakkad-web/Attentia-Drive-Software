@@ -65,7 +65,7 @@ class PipelineManager:
         self._alert_manager = AlertManager(config.alert_manager)
 
         self._display = Display(config.display)
-        self._audio_alerter = AudioAlerter()
+        self._audio_alerter = AudioAlerter(config.audio)
         self._telemetry = TelemetryLogger(config.telemetry)
         self._fps_counter = FPSCounter()
 
@@ -223,8 +223,11 @@ class PipelineManager:
         if self._config.display.enabled:
             self._display.render(record, self._fps_counter.fps)
 
-        if record.alert is not None:
-            self._audio_alerter.alert(record.alert)
+        phone_detected = (
+            record.assessment is not None
+            and "cell phone" in record.assessment.confirmed_objects
+        )
+        self._audio_alerter.update(record.driver_state, phone_detected)
 
         if self._config.telemetry.enabled:
             if record.frame_number % self._config.telemetry.log_interval_frames == 0:

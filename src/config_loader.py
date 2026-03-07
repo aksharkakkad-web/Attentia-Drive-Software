@@ -152,6 +152,19 @@ class SpeedMonitorConfig:
 
 
 @dataclass
+class AudioConfig:
+    """Configuration for the audio alerter."""
+
+    enabled: bool = True
+    onset_delay_seconds: float = 0.25
+    rollover_seconds: float = 3.0        # Initial rollover interval (t=0).
+    rollover_min_seconds: float = 0.2    # Floor: rollover never drops below this.
+    rollover_decay_seconds: float = 5.0  # Time at which floor is reached.
+    frequency_hz: int = 1000
+    duration_ms: int = 200
+
+
+@dataclass
 class AppConfig:
     """Root configuration holding all subsystem configs."""
 
@@ -171,6 +184,7 @@ class AppConfig:
     face_detector: FaceDetectorConfig = field(default_factory=FaceDetectorConfig)
     drowsiness: DrowsinessConfig = field(default_factory=DrowsinessConfig)
     speed_monitor: SpeedMonitorConfig = field(default_factory=SpeedMonitorConfig)
+    audio: AudioConfig = field(default_factory=AudioConfig)
 
 
 def _parse_tuple(value: object, expected_len: int = 2) -> Tuple[int, ...]:
@@ -431,6 +445,29 @@ def _build_speed_monitor_config(data: dict) -> SpeedMonitorConfig:
     return config
 
 
+def _build_audio_config(data: dict) -> AudioConfig:
+    """Build AudioConfig from a raw dict."""
+    config = AudioConfig()
+    if not data:
+        return config
+
+    config.enabled = bool(data.get("enabled", config.enabled))
+    config.onset_delay_seconds = float(
+        data.get("onset_delay_seconds", config.onset_delay_seconds)
+    )
+    config.rollover_seconds = float(data.get("rollover_seconds", config.rollover_seconds))
+    config.rollover_min_seconds = float(
+        data.get("rollover_min_seconds", config.rollover_min_seconds)
+    )
+    config.rollover_decay_seconds = float(
+        data.get("rollover_decay_seconds", config.rollover_decay_seconds)
+    )
+    config.frequency_hz = int(data.get("frequency_hz", config.frequency_hz))
+    config.duration_ms = int(data.get("duration_ms", config.duration_ms))
+
+    return config
+
+
 def load_config(config_path: str = "config.yaml") -> AppConfig:
     """Load and validate configuration from a YAML file.
 
@@ -473,6 +510,7 @@ def load_config(config_path: str = "config.yaml") -> AppConfig:
         face_detector=_build_face_detector_config(raw.get("face_detector", {})),
         drowsiness=_build_drowsiness_config(raw.get("drowsiness", {})),
         speed_monitor=_build_speed_monitor_config(raw.get("speed_monitor", {})),
+        audio=_build_audio_config(raw.get("audio", {})),
     )
 
     logger.info("Configuration loaded successfully")

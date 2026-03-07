@@ -149,11 +149,7 @@ class DrowsinessDetector:
         )
         drowsiness_confidence = min(1.0, drowsiness_confidence)
 
-        is_drowsy = (
-            perclos > self._config.perclos_threshold
-            or eye_closure_duration > 1.5
-            or is_yawning
-        )
+        is_drowsy = is_yawning
 
         return DrowsinessResult(
             eye_closure_duration=eye_closure_duration,

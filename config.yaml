@@ -32,15 +32,15 @@ object_detector:
 # === Temporal Smoothing (EMA) ===
 temporal_smoothing:
   enabled: true
-  alpha: 0.3              # EMA weight. Higher = more responsive, noisier. Range 0.05-0.5.
+  alpha: 0.45             # EMA weight. Higher = more responsive, noisier. Range 0.05-0.5.
   window_size: 10         # Number of frames for EMA context (informational; EMA is recursive).
 
 # === Hysteresis State Machine ===
 hysteresis:
-  enter_distracted_threshold: 0.75    # Smoothed prob must exceed this to enter DISTRACTED.
-  leave_distracted_threshold: 0.55    # Smoothed prob must drop below this to leave DISTRACTED.
-  enter_monitoring_threshold: 0.40    # Above this but below enter_distracted -> MONITORING.
-  leave_monitoring_threshold: 0.35    # Below this -> back to ATTENTIVE.
+  enter_distracted_threshold: 0.45    # Smoothed prob must exceed this to enter DISTRACTED.
+  leave_distracted_threshold: 0.34    # Smoothed prob must drop below this to leave DISTRACTED.
+  enter_monitoring_threshold: 0.28    # Above this but below enter_distracted -> MONITORING.
+  leave_monitoring_threshold: 0.22    # Below this -> back to ATTENTIVE.
 
 # === Object Temporal Confirmation (N-of-M) ===
 object_confirmation:
@@ -96,3 +96,13 @@ drowsiness:
 speed_monitor:
   enabled: false
   speed_threshold_mph: 15
+
+# === Audio Alerter ===
+audio:
+  enabled: true
+  onset_delay_seconds: 0.25   # Delay before first beep after DISTRACTED is entered.
+  rollover_seconds: 0.5       # Initial beep interval at onset of distraction.
+  rollover_min_seconds: 0.2   # Floor: beep interval never drops below this.
+  rollover_decay_seconds: 5.0 # Distraction duration (s) at which the floor is reached.
+  frequency_hz: 2000          # Beep tone pitch (Windows winsound.Beep).
+  duration_ms: 100            # Beep duration in milliseconds.

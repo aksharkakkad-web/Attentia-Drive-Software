@@ -15,7 +15,6 @@ import cv2
 import numpy as np
 
 from src.config_loader import DisplayConfig
-from src.logic.hysteresis import DriverState
 from src.pipeline.frame_record import FrameRecord
 
 logger = logging.getLogger(__name__)
@@ -34,9 +33,9 @@ def _draw_contour(
 
 
 STATE_COLORS = {
-    DriverState.ATTENTIVE: (0, 200, 0),    # Green (BGR)
-    DriverState.MONITORING: (0, 200, 255),  # Yellow (BGR)
-    DriverState.DISTRACTED: (0, 0, 255),    # Red (BGR)
+    "ATTENTIVE": (0, 200, 0),    # Green (BGR)
+    "MONITORING": (0, 200, 255),  # Yellow (BGR)
+    "DISTRACTED": (0, 0, 255),    # Red (BGR)
 }
 
 
@@ -153,11 +152,13 @@ class Display:
     def _draw_state(self, frame: np.ndarray, record: FrameRecord) -> None:
         """Draw the current driver state as large text."""
         state = record.driver_state
-        color = STATE_COLORS.get(state, (255, 255, 255))
-        text = state.name
+        if state is None:
+            return
+        state_str = state if isinstance(state, str) else getattr(state, "name", str(state))
+        color = STATE_COLORS.get(state_str, (255, 255, 255))
 
         cv2.putText(
-            frame, text, (10, 40),
+            frame, state_str, (10, 40),
             cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3,
         )
 

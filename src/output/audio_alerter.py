@@ -1,12 +1,10 @@
 """Audio alerter for distraction alerts.
 
-Phase 1-2: Prints alert to terminal.
-# Future: Replace print with audio playback. See assets/ for alert sound files.
-
-Phase: 1-2 (active, print-only).
+Phase 0: Stub — prints alert to terminal.
+Phase 7A: Will be replaced by audio_alerter_v2.py with proper alert types.
 """
 
-from src.logic.alert_manager import Alert
+from typing import Any
 
 
 class AudioAlerter:
@@ -16,21 +14,26 @@ class AudioAlerter:
     future audio playback via pygame.mixer or similar.
 
     # Future: Replace print with audio playback. See assets/ for alert sound files.
-    # The alert() method signature accepts an Alert object and can be swapped
-    # to play .wav files with different sounds per alert level.
     """
 
-    def alert(self, alert: Alert) -> None:
+    def alert(self, alert: Any) -> None:
         """Fire an audio alert.
 
-        Phase 1-2: Prints to terminal.
-        Future: Play a .wav file corresponding to the alert level.
+        Accepts any object with level and triggers attributes, or None.
+
+        Phase 0: Prints to terminal.
+        Phase 7A: Will play a .wav file corresponding to the alert level.
 
         Args:
-            alert: The Alert to output.
+            alert: The alert object to output.
         """
+        level = getattr(alert, "level", None)
+        triggers = getattr(alert, "triggers", [])
+        confidence = getattr(alert, "confidence", 0.0)
+
+        level_name = getattr(level, "name", str(level)) if level is not None else "UNKNOWN"
         print(
-            f"\U0001f6a8 ALERT: {alert.level.name} | "
-            f"Triggers: {alert.triggers} | "
-            f"Confidence: {alert.confidence:.2f}"
+            f"\U0001f6a8 ALERT: {level_name} | "
+            f"Triggers: {triggers} | "
+            f"Confidence: {confidence:.2f}"
         )

@@ -1,7 +1,7 @@
 """Attentia Drive — Entry point.
 
-Parses command-line arguments, loads configuration, applies CLI overrides,
-and runs the processing pipeline.
+Parses command-line arguments and logging setup.
+Pipeline wiring is in Phase 7B (pipeline_manager_v2.py).
 
 Usage:
     python src/main.py                           # Webcam mode
@@ -13,18 +13,10 @@ Usage:
 import argparse
 import logging
 import sys
-from pathlib import Path
-
-from src.config_loader import load_config
-from src.pipeline.pipeline_manager import PipelineManager
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    Returns:
-        Parsed arguments namespace.
-    """
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Attentia Drive — Real-time distracted driving detection",
     )
@@ -56,11 +48,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def setup_logging(level: str) -> None:
-    """Configure the Python logging system.
-
-    Args:
-        level: Logging level string (DEBUG, INFO, WARNING).
-    """
+    """Configure the Python logging system."""
     numeric_level = getattr(logging, level.upper(), logging.INFO)
     logging.basicConfig(
         level=numeric_level,
@@ -75,46 +63,9 @@ def main() -> None:
     setup_logging(args.log_level)
 
     logger = logging.getLogger(__name__)
-
-    config_path = Path(args.config)
-    if not config_path.exists():
-        logger.error("Config file not found: %s", config_path.resolve())
-        sys.exit(1)
-
-    try:
-        config = load_config(str(config_path))
-    except Exception:
-        logger.exception("Failed to load configuration")
-        sys.exit(1)
-
-    if args.source is not None:
-        if args.source.lower() == "webcam":
-            config.frame_source.type = "webcam"
-        else:
-            source_path = Path(args.source)
-            if not source_path.exists():
-                logger.error("Video file not found: %s", source_path.resolve())
-                sys.exit(1)
-            config.frame_source.type = "video"
-            config.frame_source.video_path = str(source_path)
-
-    if args.no_display:
-        config.display.enabled = False
-
     logger.info("Attentia Drive starting...")
-    logger.info("Frame source: %s", config.frame_source.type)
-    logger.info("Classifier enabled: %s", config.classifier.enabled)
-    logger.info("Object detector enabled: %s", config.object_detector.enabled)
-    logger.info("Display enabled: %s", config.display.enabled)
-
-    try:
-        pipeline = PipelineManager(config)
-        pipeline.run()
-    except Exception:
-        logger.exception("Pipeline crashed")
-        sys.exit(1)
-
-    logger.info("Attentia Drive stopped.")
+    print("Pipeline not yet wired — see Phase 7B")
+    sys.exit(0)
 
 
 if __name__ == "__main__":

@@ -3,21 +3,17 @@
 Aggregates the outputs of all pipeline stages for a single frame, used
 for display, logging, and telemetry.
 
-Phase: 1-2 (active).
+Phase: 0 (cleaned up — logic fields removed, replaced in Phase 7B).
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 
-from src.detection.classifier import ClassifierResult
 from src.detection.drowsiness import DrowsinessResult
 from src.detection.face_detector import FaceResult
 from src.detection.object_detector import ObjectDetection
-from src.logic.alert_manager import Alert
-from src.logic.distraction_reasoner import DistractionAssessment
-from src.logic.hysteresis import DriverState
 
 
 @dataclass
@@ -27,13 +23,16 @@ class FrameRecord:
     frame_number: int = 0
     timestamp: float = 0.0
     raw_frame: Optional[np.ndarray] = None
-    classifier_result: Optional[ClassifierResult] = None
     object_detections: List[ObjectDetection] = field(default_factory=list)
     face_result: Optional[FaceResult] = None
     drowsiness_result: Optional[DrowsinessResult] = None
     smoothed_probability: float = 0.0
-    driver_state: DriverState = DriverState.ATTENTIVE
-    assessment: Optional[DistractionAssessment] = None
-    alert: Optional[Alert] = None
     inference_time_ms: float = 0.0
     pipeline_time_ms: float = 0.0
+
+    # MVP-ONLY: These fields are placeholders until the new logic layers are wired
+    # in Phase 7B. They will be replaced with typed contracts from contracts.py.
+    classifier_result: Optional[Any] = None
+    driver_state: Optional[Any] = None
+    assessment: Optional[Any] = None
+    alert: Optional[Any] = None

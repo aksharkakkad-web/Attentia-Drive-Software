@@ -18,9 +18,11 @@ import cv2
 import numpy as np
 
 from src.config_loader import (
+    AppConfig,
     FaceDetectorConfig,
     FrameSourceConfig,
     ObjectDetectorConfig,
+    load_config,
 )
 from src.config_prd import (
     CALIBRATION_DURATION_S,
@@ -29,7 +31,7 @@ from src.config_prd import (
     DEGRADED_RECOVERY_FRAMES,
     DEGRADED_TRIGGER_FRAMES,
 )
-from src.contracts import AlertCommand, AlertLevel, SignalFrame, TemporalFeatures
+from src.contracts import AlertCommand, SignalFrame, TemporalFeatures
 from src.detection.face_detector import FaceDetector
 from src.detection.object_detector import ObjectDetector
 from src.logic.alert_state_machine import AlertStateMachine
@@ -60,29 +62,50 @@ class PipelineManagerV2:
     """Wires all pipeline layers into a single blocking run loop.
 
     Args:
-        source: Override frame source — None (webcam), 'webcam', or video path.
+        source: Override frame source — None (use config), 'webcam', or video path.
         display: Show OpenCV debug window.
+        config_path: Path to config.yaml (default: 'config.yaml').
     """
 
     def __init__(
         self,
         source: Optional[str] = None,
         display: bool = True,
+        config_path: str = 'config.yaml',
     ) -> None:
         self._display = display
 
+        # ── Load config ────────────────────────────────────────────────────────
+        try:
+            config: AppConfig = load_config(config_path)
+        except FileNotFoundError:
+            logger.warning("config.yaml not found at '%s' — using defaults", config_path)
+            config = AppConfig()
+
         # ── Frame source ───────────────────────────────────────────────────────
-        if source and source != 'webcam':
+        # --source CLI arg overrides config.yaml frame_source section
+        if source is not None and source != 'webcam':
             fs_config = FrameSourceConfig(type='video', video_path=source)
+        elif source == 'webcam':
+            fs_config = FrameSourceConfig(
+                type='webcam',
+                webcam_index=config.frame_source.webcam_index,
+                resolution=config.frame_source.resolution,
+                target_fps=config.frame_source.target_fps,
+            )
         else:
-            fs_config = FrameSourceConfig(type='webcam', webcam_index=0)
+            # Use config entirely (webcam or video as specified in config.yaml)
+            fs_config = config.frame_source
         self._frame_source = FrameSource(fs_config)
 
         # ── Detectors ─────────────────────────────────────────────────────────
-        face_config = FaceDetectorConfig(enabled=True)
+        # Face detection always enabled for Phase 7B — override config flag
+        face_config = config.face_detector
+        face_config.enabled = True
         self._face_detector = FaceDetector(face_config)
 
-        obj_config = ObjectDetectorConfig(enabled=True)
+        obj_config = config.object_detector
+        obj_config.enabled = True
         self._object_detector = ObjectDetector(obj_config)
 
         # ── Pipeline layers ────────────────────────────────────────────────────
@@ -141,7 +164,7 @@ class PipelineManagerV2:
 
     def _process_frame(self, frame: np.ndarray, timestamp_ns: int) -> None:
         # ── Detection ──────────────────────────────────────────────────────────
-        face_result      = self._face_detector.detect(frame)
+        face_result       = self._face_detector.detect(frame)
         object_detections = self._object_detector.detect(frame)
 
         # ── Adapter ────────────────────────────────────────────────────────────
@@ -151,36 +174,43 @@ class PipelineManagerV2:
 
         # ── Calibration phase ──────────────────────────────────────────────────
         if not self._calibration.is_complete:
+            # Always feed calibration — even when face is absent — so the
+            # internal frame count advances and the hard timeout can fire.
             if face_result.face_visible and face_result.head_pose is not None:
                 pitch, yaw, roll = face_result.head_pose
                 if face_result.ear_left is not None and face_result.ear_right is not None:
                     mean_ear = (face_result.ear_left + face_result.ear_right) / 2.0
                 else:
                     mean_ear = 0.0
-                done = self._calibration.feed_frame(yaw, pitch, mean_ear, True)
-                if done:
-                    self._signal_processor.set_neutral_offsets(
-                        self._calibration.neutral_yaw_offset,
-                        self._calibration.neutral_pitch_offset,
-                    )
-                    self._signal_processor.set_ear_baseline(
-                        self._calibration.baseline_ear,
-                        self._calibration.close_threshold,
-                    )
-                    self._event_logger.log_calibration(
-                        self._calibration.neutral_yaw_offset,
-                        self._calibration.neutral_pitch_offset,
-                        self._calibration.baseline_ear,
-                    )
-                    self._event_logger.log_state_transition(
-                        'CALIBRATING', 'NOMINAL', 'calibration_complete', self._frame_id
-                    )
-                    logger.info(
-                        "Calibration complete — yaw_offset=%.2f pitch_offset=%.2f baseline_ear=%.3f",
-                        self._calibration.neutral_yaw_offset,
-                        self._calibration.neutral_pitch_offset,
-                        self._calibration.baseline_ear,
-                    )
+                done = self._calibration.feed_frame(yaw, pitch, mean_ear, face_visible=True)
+            else:
+                done = self._calibration.feed_frame(0.0, 0.0, 0.0,
+                                                     face_visible=face_result.face_visible)
+
+            if done:
+                self._signal_processor.set_neutral_offsets(
+                    self._calibration.neutral_yaw_offset,
+                    self._calibration.neutral_pitch_offset,
+                )
+                self._signal_processor.set_ear_baseline(
+                    self._calibration.baseline_ear,
+                    self._calibration.close_threshold,
+                )
+                self._event_logger.log_calibration(
+                    self._calibration.neutral_yaw_offset,
+                    self._calibration.neutral_pitch_offset,
+                    self._calibration.baseline_ear,
+                )
+                self._event_logger.log_state_transition(
+                    'CALIBRATING', 'NOMINAL', 'calibration_complete', self._frame_id
+                )
+                logger.info(
+                    "Calibration %s — yaw_offset=%.2f pitch_offset=%.2f baseline_ear=%.3f",
+                    self._calibration.status,
+                    self._calibration.neutral_yaw_offset,
+                    self._calibration.neutral_pitch_offset,
+                    self._calibration.baseline_ear,
+                )
 
             if self._display:
                 self._draw_calibrating(frame)
@@ -210,7 +240,7 @@ class PipelineManagerV2:
             )
 
         if self._display:
-            self._draw_overlay(frame, signal_frame, temporal_features, distraction_score, alert_cmd)
+            self._draw_overlay(frame, signal_frame, temporal_features, distraction_score)
             cv2.imshow(_WINDOW, frame)
 
     # ── Degraded display tracking ──────────────────────────────────────────────
@@ -234,17 +264,15 @@ class PipelineManagerV2:
     def _draw_calibrating(self, frame: np.ndarray) -> None:
         """Draw calibration overlay."""
         h, w = frame.shape[:2]
-        # Semi-transparent dark strip at top
         overlay = frame.copy()
         cv2.rectangle(overlay, (0, 0), (w, 90), (20, 20, 20), -1)
         cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
 
-        # Count of collected frames (each call to feed_frame with visible=True)
         target = int(CAPTURE_FPS * CALIBRATION_DURATION_S)
-        # We don't have direct access to sample count; show time estimate instead
         cv2.putText(frame, 'CALIBRATING — hold still',
                     (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.9, _YELLOW, 2)
-        cv2.putText(frame, f'Target: {target} frames at {CAPTURE_FPS} fps (~{CALIBRATION_DURATION_S:.0f}s)',
+        cv2.putText(frame,
+                    f'Target: {target} frames at {CAPTURE_FPS} fps (~{CALIBRATION_DURATION_S:.0f}s)',
                     (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.55, _WHITE, 1)
 
     def _draw_overlay(
@@ -253,7 +281,6 @@ class PipelineManagerV2:
         sf: SignalFrame,
         tf: TemporalFeatures,
         ds,
-        alert_cmd: Optional[AlertCommand],
     ) -> None:
         """Draw full debug overlay onto frame in-place."""
         h, w = frame.shape[:2]
@@ -318,8 +345,8 @@ class PipelineManagerV2:
         bar_color = _RED if score_clamped >= 0.55 else _YELLOW if score_clamped >= 0.35 else _GREEN
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1)
         if fill_w > 0:
-            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), bar_color, -1)
-        # Threshold line at 0.55
+            cv2.rectangle(frame, (bar_x, bar_y),
+                          (bar_x + fill_w, bar_y + bar_h), bar_color, -1)
         thresh_x = bar_x + int(bar_w * 0.55)
         cv2.line(frame, (thresh_x, bar_y - 2), (thresh_x, bar_y + bar_h + 2), _WHITE, 1)
         cv2.putText(frame, f'Score: {ds.composite_score:.3f}',

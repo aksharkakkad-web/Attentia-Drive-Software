@@ -1,14 +1,20 @@
 """Attentia Drive — Entry point.
 
 Parses command-line arguments and logging setup.
-Pipeline wiring is in Phase 7B (pipeline_manager_v2.py).
 
 Usage:
-    python src/main.py                           # Webcam mode
-    python src/main.py --source path/to/video.mp4  # Video replay mode
-    python src/main.py --no-display              # Headless mode
-    python src/main.py --config custom.yaml      # Custom config file
+    python src/main.py                               # Webcam, default config
+    python src/main.py --source path/to/video.mp4   # Video replay mode
+    python src/main.py --no-display                  # Headless mode
+    python src/main.py --config custom.yaml          # Custom config file
+    python src/main.py --log-level DEBUG             # Verbose logging
 """
+
+import sys
+from pathlib import Path
+
+# Allow running as: python src/main.py (adds project root to path)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import argparse
 import logging
@@ -22,10 +28,16 @@ def parse_args() -> argparse.Namespace:
         description="Attentia Drive — Real-time distracted driving detection",
     )
     parser.add_argument(
+        "--config",
+        type=str,
+        default="config.yaml",
+        help="Path to config.yaml (default: config.yaml)",
+    )
+    parser.add_argument(
         "--source",
         type=str,
         default=None,
-        help="Frame source: 'webcam' (default) or path to video file",
+        help="Frame source override: 'webcam' or path to video file",
     )
     parser.add_argument(
         "--no-display",
@@ -63,6 +75,7 @@ def main() -> None:
     pipeline = PipelineManagerV2(
         source=args.source,
         display=not args.no_display,
+        config_path=args.config,
     )
     pipeline.run()
 

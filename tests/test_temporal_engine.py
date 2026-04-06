@@ -190,6 +190,23 @@ class TestBlinkDetector:
         result = bd.update(0.30, threshold, 1 / 30)
         assert result is False
 
+    def test_no_blink_when_starting_already_below_threshold(self):
+        """EAR starts below threshold with no prior above frame — no blink counted.
+
+        A blink requires a genuine above→below crossover. If the very first frames
+        are already below close_threshold there is no above→below transition and the
+        subsequent rise above threshold must NOT be counted as a blink.
+        """
+        bd = BlinkDetector()
+        threshold = 0.21
+        count = 0
+        # Start already below — no above frame seen first
+        for _ in range(5):
+            count += bd.update(0.15, threshold, 1 / 30)
+        # Rise back above
+        count += bd.update(0.30, threshold, 1 / 30)
+        assert count == 0
+
 
 # ── Test 7 & 8: Blink rate score ─────────────────────────────────────────────
 

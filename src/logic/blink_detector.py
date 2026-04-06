@@ -31,11 +31,10 @@ class BlinkDetector:
     """
 
     def __init__(self) -> None:
-        self._below_count: int = 0       # Consecutive frames EAR has been below threshold
-        self._currently_below: bool = False
+        self._prev_was_above: bool = False  # True once we've seen a frame above threshold
+        self._in_blink: bool = False        # True during an active above→below run
+        self._below_count: int = 0          # Frames below threshold in current run
 
-        # Rolling list of (timestamp_s, count=1) for each detected blink
-        # Using a simple list of blink timestamps in seconds
         self._blink_timestamps: list = []
         self._current_time_s: float = 0.0
         self._frame_delta: float = 1.0 / CAPTURE_FPS  # Default delta if not provided
@@ -43,13 +42,16 @@ class BlinkDetector:
     def update(self, mean_ear: float, close_threshold: float, delta_seconds: float = None) -> bool:
         """Process one frame of EAR data.
 
+        A blink requires a full above→below→above EAR transition.
+        Frames that begin already below threshold do NOT start a blink counter.
+
         Args:
             mean_ear: Mean EAR value for this frame.
             close_threshold: Threshold below which eyes are considered closed.
             delta_seconds: Elapsed time since last frame. Defaults to 1/CAPTURE_FPS.
 
         Returns:
-            True if a blink was detected on this frame transition (eye just re-opened).
+            True if a complete blink was detected on this frame (eye just re-opened).
         """
         if delta_seconds is None:
             delta_seconds = self._frame_delta
@@ -59,16 +61,22 @@ class BlinkDetector:
         is_below = mean_ear < close_threshold
 
         if is_below:
-            self._below_count += 1
-            self._currently_below = True
+            if not self._in_blink and self._prev_was_above:
+                # Genuine above→below crossover: start counting
+                self._in_blink = True
+                self._below_count = 1
+            elif self._in_blink:
+                self._below_count += 1
+            # else: started already below without a prior above frame — ignore
         else:
-            # Transition: was below, now above
-            if self._currently_below:
+            if self._in_blink:
+                # below→above transition: evaluate whether this was a blink
                 if BLINK_MIN_FRAMES <= self._below_count <= BLINK_MAX_FRAMES:
                     blink_detected = True
                     self._blink_timestamps.append(self._current_time_s)
-            self._below_count = 0
-            self._currently_below = False
+                self._in_blink = False
+                self._below_count = 0
+            self._prev_was_above = True
 
         # Prune blinks outside the rolling 30s window
         cutoff = self._current_time_s - _BLINK_RATE_WINDOW_S

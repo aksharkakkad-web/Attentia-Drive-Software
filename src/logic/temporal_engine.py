@@ -151,13 +151,18 @@ class TemporalEngine:
     # ── Private helpers ────────────────────────────────────────────────────────
 
     def _compute_delta(self, timestamp_ns: int) -> float:
-        """Compute frame delta in seconds from consecutive timestamps."""
-        if self._last_timestamp_ns is None or timestamp_ns <= self._last_timestamp_ns:
+        """Compute frame delta in seconds from consecutive timestamps.
+
+        Returns 0.0 for duplicate or backward timestamps to prevent timer corruption.
+        """
+        if self._last_timestamp_ns is None:
             self._last_timestamp_ns = timestamp_ns
             return self._default_delta
+        if timestamp_ns <= self._last_timestamp_ns:
+            # Duplicate or backward timestamp — clamp to 0.0, leave baseline unchanged
+            return 0.0
         delta = (timestamp_ns - self._last_timestamp_ns) / 1e9
         self._last_timestamp_ns = timestamp_ns
-        # Clamp to sane range: at least one frame time, at most 1 second
         return max(self._default_delta, min(1.0, delta))
 
     def _compute_gaze_fraction(self) -> float:

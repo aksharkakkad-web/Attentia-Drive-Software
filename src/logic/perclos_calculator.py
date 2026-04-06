@@ -28,8 +28,7 @@ class PerclosCalculator:
         """Add one frame to the sliding window.
 
         Args:
-            eyes_closed: True if mean_EAR <= baseline_EAR * (1 - PERCLOS_CLOSURE_FRACTION).
-                         The caller (TemporalEngine) computes this boolean.
+            eyes_closed: Caller-computed boolean — True if eyes were closed this frame.
             frame_valid: True if eye signals were valid this frame.
         """
         self._window.append((eyes_closed, frame_valid))

@@ -80,9 +80,10 @@ PNP_REPROJECTION_ERR_MAX = 8.0   # PRD §19 — pixels; HeadPose.valid=False if 
 
 # ─── EAR / PERCLOS ───────────────────────────────────────────────────────────
 # PRD §19
-EAR_DEFAULT_CLOSE_THRESHOLD = 0.21   # PRD §19 — Used before calibration completes
-EAR_CALIBRATION_MULTIPLIER  = 0.75   # PRD §19 — close_threshold = baseline * this
-EAR_CALIBRATION_DURATION_S  = 30.0   # PRD §19 — Original EAR baseline collection window
+EAR_BASELINE_POPULATION_DEFAULT = 0.28   # PRD §5.2 — Population mean open-eye EAR; used until per-session calibration completes
+EAR_DEFAULT_CLOSE_THRESHOLD     = 0.21   # PRD §19 — Used before calibration completes
+EAR_CALIBRATION_MULTIPLIER      = 0.75   # PRD §19 — close_threshold = baseline * this
+EAR_CALIBRATION_DURATION_S      = 30.0   # PRD §19 — Original EAR baseline collection window
 PERCLOS_WINDOW_FRAMES       = 60     # PRD §19 — 2.0s at 30fps
 PERCLOS_CLOSURE_FRACTION    = 0.80   # PRD §19 — EAR < close_threshold * this = "closed"
 PERCLOS_ALERT_THRESHOLD     = 0.15   # PRD §19

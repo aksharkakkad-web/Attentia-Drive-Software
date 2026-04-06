@@ -13,7 +13,8 @@ PRD §5.1–§5.7
 """
 
 from src.config_prd import (
-    EAR_CALIBRATION_MULTIPLIER,
+    CAPTURE_FPS,
+    EAR_BASELINE_POPULATION_DEFAULT,
     EAR_DEFAULT_CLOSE_THRESHOLD,
     LSTM_RESET_ABSENT_FRAMES,
     ROAD_ZONE_PITCH_MAX,
@@ -44,10 +45,10 @@ class SignalProcessor:
     PRD §5.1–§5.7.
 
     Args:
-        dt: Frame time step in seconds. Default 1/30 for 30 fps.
+        dt: Frame time step in seconds. Default 1/CAPTURE_FPS from config_prd.
     """
 
-    def __init__(self, dt: float = 1.0 / 30.0) -> None:
+    def __init__(self, dt: float = 1.0 / CAPTURE_FPS) -> None:
         # Five independent Kalman filters (PRD §5.6)
         self._kf_yaw = KalmanFilter(dt=dt)
         self._kf_pitch = KalmanFilter(dt=dt)
@@ -60,7 +61,7 @@ class SignalProcessor:
         self._neutral_pitch_offset: float = 0.0
 
         # EAR calibration state (PRD §5.2)
-        self._baseline_EAR: float = 0.28          # population default
+        self._baseline_EAR: float = EAR_BASELINE_POPULATION_DEFAULT
         self._close_threshold: float = EAR_DEFAULT_CLOSE_THRESHOLD
         self._calibration_complete: bool = False
 
@@ -176,11 +177,8 @@ class SignalProcessor:
 
         # EAR computation (PRD §5.2)
         mean_EAR = (bundle.ear_left + bundle.ear_right) / 2.0
-        close_threshold = (
-            self._baseline_EAR * EAR_CALIBRATION_MULTIPLIER
-            if self._calibration_complete
-            else EAR_DEFAULT_CLOSE_THRESHOLD
-        )
+        # Use stored threshold directly — set by set_ear_baseline() or default 0.21
+        close_threshold = self._close_threshold
 
         eye_signals = EyeSignals(
             left_EAR=bundle.ear_left,

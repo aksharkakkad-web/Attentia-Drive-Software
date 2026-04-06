@@ -4,9 +4,9 @@ Writes one JSON object per line to a rotating log file.
 50 MB max size, 5 backup files (PRD §9).
 
 Events logged:
-  - alert: an AlertCommand was fired
-  - state_transition: pipeline state changed
-  - calibration: calibration completed (success or failure)
+  - ALERT: an AlertCommand was fired
+  - STATE_TRANSITION: pipeline state changed
+  - CALIBRATION_COMPLETE: calibration completed (success or failure)
 
 PRD §9 — Event Logging
 """
@@ -58,23 +58,26 @@ class EventLogger:
     def log_alert(self, alert_cmd: AlertCommand, score: DistractionScore) -> None:
         """Log a fired AlertCommand with its associated DistractionScore.
 
-        PRD §9 — Event type: 'alert'
+        PRD §9 — Event type: 'ALERT'
 
         Args:
             alert_cmd: The AlertCommand that was emitted.
             score: The DistractionScore that triggered the alert.
         """
         record = {
-            'type': 'alert',
-            'ts': time.time(),
+            'event_type': 'ALERT',
+            'timestamp_ns': alert_cmd.timestamp_ns,
             'alert_id': alert_cmd.alert_id,
-            'level': alert_cmd.level.name,
             'alert_type': alert_cmd.alert_type.value,
+            'alert_level': alert_cmd.level.name,
             'composite_score': round(score.composite_score, 4),
             'active_classes': alert_cmd.active_classes,
         }
-        self._logger.info(json.dumps(record))
-        self._handler.flush()
+        try:
+            self._logger.info(json.dumps(record))
+            self._handler.flush()
+        except Exception:
+            pass
 
     def log_state_transition(
         self,
@@ -85,7 +88,7 @@ class EventLogger:
     ) -> None:
         """Log a pipeline state machine transition.
 
-        PRD §9 — Event type: 'state_transition'
+        PRD §9 — Event type: 'STATE_TRANSITION'
 
         Args:
             previous: Previous state name.
@@ -94,15 +97,18 @@ class EventLogger:
             frame_id: Frame number at the time of transition.
         """
         record = {
-            'type': 'state_transition',
-            'ts': time.time(),
+            'event_type': 'STATE_TRANSITION',
+            'timestamp_ns': time.time_ns(),
             'frame_id': frame_id,
-            'previous': previous,
-            'new': new,
+            'previous_state': previous,
+            'new_state': new,
             'trigger': trigger,
         }
-        self._logger.info(json.dumps(record))
-        self._handler.flush()
+        try:
+            self._logger.info(json.dumps(record))
+            self._handler.flush()
+        except Exception:
+            pass
 
     def log_calibration(
         self,
@@ -112,7 +118,7 @@ class EventLogger:
     ) -> None:
         """Log calibration results.
 
-        PRD §9 — Event type: 'calibration'
+        PRD §9 — Event type: 'CALIBRATION_COMPLETE'
 
         Args:
             yaw_offset: Neutral yaw offset computed during calibration (degrees).
@@ -120,11 +126,14 @@ class EventLogger:
             baseline_ear: Mean open-eye EAR from calibration window.
         """
         record = {
-            'type': 'calibration',
-            'ts': time.time(),
-            'yaw_offset': round(yaw_offset, 4),
-            'pitch_offset': round(pitch_offset, 4),
+            'event_type': 'CALIBRATION_COMPLETE',
+            'timestamp_ns': time.time_ns(),
+            'neutral_yaw_offset': round(yaw_offset, 4),
+            'neutral_pitch_offset': round(pitch_offset, 4),
             'baseline_ear': round(baseline_ear, 4),
         }
-        self._logger.info(json.dumps(record))
-        self._handler.flush()
+        try:
+            self._logger.info(json.dumps(record))
+            self._handler.flush()
+        except Exception:
+            pass

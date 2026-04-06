@@ -14,6 +14,7 @@ from typing import List, Optional
 
 import numpy as np
 
+from src.config_prd import PHONE_CONFIDENCE_THRESHOLD
 from src.contracts import (
     FaceDetection,
     GazeOutput,
@@ -22,9 +23,6 @@ from src.contracts import (
     PhoneDetectionOutput,
     RawFrame,
 )
-
-# Phone confidence gate for PhoneDetectionOutput.detected flag
-_PHONE_CONFIDENCE_GATE = 0.70
 
 
 def convert_to_perception_bundle(
@@ -127,7 +125,7 @@ def _extract_phone(object_detections: List) -> PhoneDetectionOutput:
         return PhoneDetectionOutput()
     best = max(phones, key=lambda d: d.confidence)
     return PhoneDetectionOutput(
-        detected=best.confidence >= _PHONE_CONFIDENCE_GATE,
+        detected=best.confidence >= PHONE_CONFIDENCE_THRESHOLD,
         max_confidence=best.confidence,
         bbox_norm=best.bbox,  # MVP: pixel bbox stored in bbox_norm field
     )

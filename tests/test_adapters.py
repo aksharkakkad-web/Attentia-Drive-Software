@@ -174,10 +174,11 @@ class TestEventLogger:
         return [json.loads(ln) for ln in files[0].read_text().strip().splitlines()]
 
     def test_log_alert_writes_valid_json(self, tmp_path):
-        """log_alert() writes one valid JSON line with type='alert'."""
+        """log_alert() writes one valid JSON line with event_type='ALERT' (PRD §9)."""
         el = self._make_logger(tmp_path)
         alert_cmd = AlertCommand(
             alert_id='abc-123',
+            timestamp_ns=1740000000000000000,
             level=AlertLevel.URGENT,
             alert_type=AlertType.PHONE_USE,
             composite_score=0.75,
@@ -188,32 +189,36 @@ class TestEventLogger:
         lines = self._read_lines(tmp_path)
         assert len(lines) == 1
         rec = lines[0]
-        assert rec['type'] == 'alert'
+        assert rec['event_type'] == 'ALERT'
+        assert rec['timestamp_ns'] == 1740000000000000000
         assert rec['alert_id'] == 'abc-123'
-        assert rec['level'] == 'URGENT'
+        assert rec['alert_level'] == 'URGENT'
         assert rec['alert_type'] == 'D-D'
         assert 'composite_score' in rec
         assert 'D-D' in rec['active_classes']
 
     def test_log_calibration_writes_valid_json(self, tmp_path):
-        """log_calibration() writes one valid JSON line with type='calibration'."""
+        """log_calibration() writes one JSON line with event_type='CALIBRATION_COMPLETE' (PRD §9)."""
         el = self._make_logger(tmp_path)
         el.log_calibration(yaw_offset=5.0, pitch_offset=3.0, baseline_ear=0.30)
         lines = self._read_lines(tmp_path)
-        assert lines[0]['type'] == 'calibration'
-        assert lines[0]['yaw_offset'] == pytest.approx(5.0)
-        assert lines[0]['pitch_offset'] == pytest.approx(3.0)
-        assert lines[0]['baseline_ear'] == pytest.approx(0.30)
+        rec = lines[0]
+        assert rec['event_type'] == 'CALIBRATION_COMPLETE'
+        assert 'timestamp_ns' in rec
+        assert rec['neutral_yaw_offset'] == pytest.approx(5.0)
+        assert rec['neutral_pitch_offset'] == pytest.approx(3.0)
+        assert rec['baseline_ear'] == pytest.approx(0.30)
 
     def test_log_state_transition_writes_valid_json(self, tmp_path):
-        """log_state_transition() writes one valid JSON line with type='state_transition'."""
+        """log_state_transition() writes one JSON line with event_type='STATE_TRANSITION' (PRD §9)."""
         el = self._make_logger(tmp_path)
         el.log_state_transition('NOMINAL', 'DEGRADED', 'face_absent', frame_id=100)
         lines = self._read_lines(tmp_path)
         rec = lines[0]
-        assert rec['type'] == 'state_transition'
-        assert rec['previous'] == 'NOMINAL'
-        assert rec['new'] == 'DEGRADED'
+        assert rec['event_type'] == 'STATE_TRANSITION'
+        assert 'timestamp_ns' in rec
+        assert rec['previous_state'] == 'NOMINAL'
+        assert rec['new_state'] == 'DEGRADED'
         assert rec['trigger'] == 'face_absent'
         assert rec['frame_id'] == 100
 

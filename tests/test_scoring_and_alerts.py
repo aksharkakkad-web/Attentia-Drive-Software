@@ -87,6 +87,7 @@ class TestScoringEngine:
         assert result.phone_threshold_breached is False
         assert result.composite_threshold_breached is False
         assert result.face_absent_threshold_breached is False
+        assert result.active_classes == []
 
     # Test 2
     def test_gaze_fraction_1_gives_0_45_no_composite_breach(self):
@@ -205,28 +206,28 @@ class TestAlertStateMachine:
         assert result.level == AlertLevel.URGENT
         assert result.alert_type == AlertType.PHONE_USE
 
-    # Test 12
-    def test_phone_suppressed_during_5s_cooldown(self):
-        """After a phone alert, the same breach is suppressed during the 5s cooldown."""
+    # Test 12 — P-01: phone ignores its own cooldown
+    def test_phone_fires_on_every_breach_ignores_own_cooldown(self):
+        """P-01: PHONE_USE ignores its own cooldown — fires on every breached frame."""
         asm = AlertStateMachine()
         with patch('src.logic.alert_state_machine.time.monotonic', return_value=0.0):
-            asm.update(_score_phone(), signals_valid=True)  # fires; cooldown until t=5
+            r1 = asm.update(_score_phone(), signals_valid=True)
+        with patch('src.logic.alert_state_machine.time.monotonic', return_value=0.5):
+            # t=0.5 is within what would be a 5s cooldown — phone fires anyway
+            r2 = asm.update(_score_phone(), signals_valid=True)
+        assert r1 is not None and r1.alert_type == AlertType.PHONE_USE
+        assert r2 is not None and r2.alert_type == AlertType.PHONE_USE
 
-        with patch('src.logic.alert_state_machine.time.monotonic', return_value=3.0):
-            result = asm.update(_score_phone(), signals_valid=True)  # t=3 < t=5 → suppressed
-        assert result is None
-
-    # Test 13
-    def test_phone_fires_again_after_cooldown_expires(self):
-        """After 5+ seconds the phone alert fires again on a continued breach."""
+    # Test 13 — face absent alert
+    def test_face_absent_breach_gives_high_alert(self):
+        """face_absent_threshold_breached → HIGH alert, alert_type=FACE_ABSENT."""
         asm = AlertStateMachine()
+        score = DistractionScore(face_absent_threshold_breached=True)
         with patch('src.logic.alert_state_machine.time.monotonic', return_value=0.0):
-            asm.update(_score_phone(), signals_valid=True)  # fires; cooldown until t=5
-
-        with patch('src.logic.alert_state_machine.time.monotonic', return_value=6.0):
-            result = asm.update(_score_phone(), signals_valid=True)  # t=6 > t=5 → fires
+            result = asm.update(score, signals_valid=True)
         assert result is not None
-        assert result.alert_type == AlertType.PHONE_USE
+        assert result.alert_type == AlertType.FACE_ABSENT
+        assert result.level == AlertLevel.HIGH
 
     # Test 14
     def test_gaze_breach_gives_high_alert(self):
@@ -259,14 +260,16 @@ class TestAlertStateMachine:
 
     # Test 16
     def test_60_invalid_frames_enters_degraded(self):
-        """60 consecutive signals_valid=False → DEGRADED, no alerts."""
+        """60 consecutive signals_valid=False → DEGRADED; every update returns None."""
         asm = AlertStateMachine()
-        score = _score_phone()  # would normally fire
-        result = None
+        # Use no-breach score so no alert fires before DEGRADED is entered
         for _ in range(60):
-            result = asm.update(score, signals_valid=False)
-        assert result is None
+            result = asm.update(_score_no_breaches(), signals_valid=False)
+            assert result is None  # no alert on any frame during entry
         assert asm._is_degraded is True
+        # Even a phone breach returns None once DEGRADED
+        result = asm.update(_score_phone(), signals_valid=False)
+        assert result is None
 
     # Test 17
     def test_30_valid_frames_recovers_from_degraded(self):
@@ -299,6 +302,31 @@ class TestAlertStateMachine:
         assert 'D-B' in result.active_classes
         # Only one alert command emitted
         assert isinstance(result.alert_id, str) and len(result.alert_id) > 0
+
+    def test_composite_breach_without_individual_gives_visual_inattention(self):
+        """composite_threshold_breached with no individual breaches → VISUAL_INATTENTION."""
+        asm = AlertStateMachine()
+        score = DistractionScore(composite_threshold_breached=True, active_classes=[])
+        with patch('src.logic.alert_state_machine.time.monotonic', return_value=0.0):
+            result = asm.update(score, signals_valid=True)
+        assert result is not None
+        assert result.alert_type == AlertType.VISUAL_INATTENTION
+
+    def test_alert_fires_immediately_on_recovery_frame(self):
+        """The 30th recovery frame exits DEGRADED and immediately allows an alert."""
+        asm = AlertStateMachine()
+        for _ in range(60):
+            asm.update(_score_no_breaches(), signals_valid=False)
+        assert asm._is_degraded is True
+        for _ in range(29):
+            asm.update(_score_no_breaches(), signals_valid=True)
+        assert asm._is_degraded is True  # not yet recovered
+        # 30th valid frame exits DEGRADED and should be able to emit an alert
+        with patch('src.logic.alert_state_machine.time.monotonic', return_value=0.0):
+            result = asm.update(_score_phone(), signals_valid=True)
+        assert asm._is_degraded is False
+        assert result is not None
+        assert result.alert_type == AlertType.PHONE_USE
 
     def test_alert_id_is_unique_per_alert(self):
         """Each fired alert has a distinct UUID."""

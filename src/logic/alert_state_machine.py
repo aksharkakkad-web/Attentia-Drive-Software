@@ -110,9 +110,13 @@ class AlertStateMachine:
             if composite_type not in candidates:
                 candidates.append(composite_type)
 
-        # Select the highest-priority candidate not suppressed by its own cooldown
+        # Select the highest-priority candidate not suppressed by its own cooldown.
+        # P-01 exception: PHONE_USE ignores ALL cooldowns including its own — always fires.
         selected: Optional[AlertType] = None
         for alert_type in candidates:
+            if alert_type == AlertType.PHONE_USE:
+                selected = alert_type  # P-01: never check cooldown for phone
+                break
             expiry = self._cooldown_expiry.get(alert_type, 0.0)
             if now >= expiry:
                 selected = alert_type

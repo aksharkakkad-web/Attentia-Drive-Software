@@ -12,7 +12,8 @@ Usage:
 
 import argparse
 import logging
-import sys
+
+from src.pipeline.pipeline_manager_v2 import PipelineManagerV2
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,16 +22,10 @@ def parse_args() -> argparse.Namespace:
         description="Attentia Drive — Real-time distracted driving detection",
     )
     parser.add_argument(
-        "--config",
-        type=str,
-        default="config.yaml",
-        help="Path to config.yaml (default: config.yaml)",
-    )
-    parser.add_argument(
         "--source",
         type=str,
         default=None,
-        help="Override frame source: 'webcam' or path to video file",
+        help="Frame source: 'webcam' (default) or path to video file",
     )
     parser.add_argument(
         "--no-display",
@@ -64,8 +59,12 @@ def main() -> None:
 
     logger = logging.getLogger(__name__)
     logger.info("Attentia Drive starting...")
-    print("Pipeline not yet wired — see Phase 7B")
-    sys.exit(0)
+
+    pipeline = PipelineManagerV2(
+        source=args.source,
+        display=not args.no_display,
+    )
+    pipeline.run()
 
 
 if __name__ == "__main__":

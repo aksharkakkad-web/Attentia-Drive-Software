@@ -39,7 +39,7 @@ class TemporalEngine:
     PRD §FM-05 — will be replaced when SpeedSource is implemented on device.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, fps: float = CAPTURE_FPS) -> None:
         self._buffer: deque = deque(maxlen=CIRCULAR_BUFFER_SIZE)
 
         self._gaze_timer = DurationTimer()
@@ -51,7 +51,7 @@ class TemporalEngine:
         self._blink = BlinkDetector()
 
         self._last_timestamp_ns: Optional[int] = None
-        self._default_delta: float = 1.0 / CAPTURE_FPS
+        self._default_delta: float = 1.0 / fps
 
     # ── Main processing method ─────────────────────────────────────────────────
 

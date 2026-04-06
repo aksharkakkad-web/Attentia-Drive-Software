@@ -109,11 +109,12 @@ class PipelineManagerV2:
         self._object_detector = ObjectDetector(obj_config)
 
         # ── Pipeline layers ────────────────────────────────────────────────────
-        self._signal_processor = SignalProcessor()
-        self._temporal_engine  = TemporalEngine()
+        fps = float(config.frame_source.target_fps)
+        self._signal_processor = SignalProcessor(dt=1.0 / fps)
+        self._temporal_engine  = TemporalEngine(fps=fps)
         self._scoring_engine   = ScoringEngine()
         self._alert_sm         = AlertStateMachine()
-        self._calibration      = Calibration()
+        self._calibration      = Calibration(fps=fps)
 
         # ── Output modules ─────────────────────────────────────────────────────
         self._event_logger = EventLogger()

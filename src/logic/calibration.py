@@ -92,7 +92,10 @@ class Calibration:
         if face_visible:
             self._yaw_samples.append(head_yaw)
             self._pitch_samples.append(head_pitch)
-            self._ear_samples.append(mean_ear)
+            # Only collect EAR samples that are physiologically plausible.
+            # mean_ear=0.0 indicates a sensor dropout, not a closed eye.
+            if mean_ear > 0.05:
+                self._ear_samples.append(mean_ear)
 
         n_valid = len(self._yaw_samples)
 
@@ -169,7 +172,8 @@ class Calibration:
         n = len(self._yaw_samples)
         yaw_mean = sum(self._yaw_samples) / n
         pitch_mean = sum(self._pitch_samples) / n
-        ear_mean = sum(self._ear_samples) / n
+        # EAR samples may be fewer than pose samples (invalid values filtered in feed_frame)
+        ear_mean = sum(self._ear_samples) / len(self._ear_samples) if self._ear_samples else 0.0
 
         yaw_std = math.sqrt(sum((y - yaw_mean) ** 2 for y in self._yaw_samples) / n)
         pitch_std = math.sqrt(sum((p - pitch_mean) ** 2 for p in self._pitch_samples) / n)
@@ -180,8 +184,10 @@ class Calibration:
         ):
             self._neutral_yaw_offset = yaw_mean
             self._neutral_pitch_offset = pitch_mean
-            self._baseline_ear = ear_mean
-            self._close_threshold = ear_mean * EAR_CALIBRATION_MULTIPLIER
+            if self._ear_samples:
+                self._baseline_ear = ear_mean
+                self._close_threshold = ear_mean * EAR_CALIBRATION_MULTIPLIER
+            # else: no valid EAR samples — keep population defaults (0.28 / 0.21)
             self._quality_ok = True
             self._status = 'complete'
         else:

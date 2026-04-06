@@ -169,6 +169,20 @@ class TestReset:
         assert cal.neutral_pitch_offset == pytest.approx(7.0)
         assert cal.baseline_ear == pytest.approx(0.25)
 
+    def test_zero_ear_falls_back_to_default_baseline(self):
+        """150 frames with mean_ear=0.0 → EAR filtered out; baseline and threshold use defaults."""
+        cal = Calibration(target_duration_s=5.0, fps=30.0)
+        for _ in range(150):
+            cal.feed_frame(5.0, 3.0, mean_ear=0.0, face_visible=True)
+        # Pose calibration should still succeed (yaw/pitch are stable)
+        assert cal.status == 'complete'
+        assert cal.quality_ok is True
+        assert cal.neutral_yaw_offset == pytest.approx(5.0)
+        assert cal.neutral_pitch_offset == pytest.approx(3.0)
+        # EAR defaults because all samples were filtered
+        assert cal.baseline_ear == pytest.approx(0.28)
+        assert cal.close_threshold == pytest.approx(0.21)
+
     def test_reset_after_failure_allows_retry(self):
         """After a failed calibration, reset + stable data succeeds."""
         cal = Calibration(target_duration_s=5.0, fps=30.0)

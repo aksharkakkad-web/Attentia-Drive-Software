@@ -166,6 +166,9 @@ class ObjectDetector(BaseDetector):
         self._classes_idx: int = 1
         self._scores_idx: int = 2
         self._num_det_idx: int = 3
+        # True when the model uses raw-anchor format: [1,N,C] scores + [1,N,4] boxes
+        # instead of the standard 4-tensor postprocessed SSD format.
+        self._raw_output_format: bool = False
 
         if config.enabled:
             self.load_model(config.model_path)
@@ -199,6 +202,7 @@ class ObjectDetector(BaseDetector):
             self._model_input_hw = (int(input_shape[1]), int(input_shape[2]))
 
             self._resolve_output_indices()
+            self._raw_output_format = self._detect_raw_output_format()
 
             # Try to load embedded label map
             embedded_map = _load_embedded_labelmap(path)
@@ -210,14 +214,16 @@ class ObjectDetector(BaseDetector):
 
             source = "embedded metadata" if embedded_map else "fallback hardcoded"
             inp = self._input_details[0]
+            fmt = "raw-anchor" if self._raw_output_format else "postprocessed-SSD"
             logger.info(
                 "ObjectDetector: Model loaded from '%s' | "
-                "input=%s %s | %d outputs | label source: %s | "
+                "input=%s %s | %d outputs | format=%s | label source: %s | "
                 "target IDs: %s",
                 path,
                 self._model_input_hw,
                 inp["dtype"],
                 len(self._output_details),
+                fmt,
                 source,
                 dict(self._target_filter),
             )
@@ -290,10 +296,26 @@ class ObjectDetector(BaseDetector):
             logger.exception("ObjectDetector: Inference failed")
             return self._cached_detections
 
+    def _detect_raw_output_format(self) -> bool:
+        """Return True if the model uses raw-anchor format instead of 4-tensor postprocessed SSD.
+
+        Raw-anchor models expose 2 tensors:
+          - [1, N, C]  class logits/scores  (C > 4)
+          - [1, N, 4]  box predictions
+        Postprocessed SSD models expose 4 tensors (boxes, classes, scores, num_detections).
+        """
+        if len(self._output_details) != 2:
+            return False
+        shapes = [tuple(d["shape"]) for d in self._output_details]
+        has_class_tensor = any(len(s) == 3 and s[-1] > 4 for s in shapes)
+        has_box_tensor   = any(len(s) == 3 and s[-1] == 4 for s in shapes)
+        return has_class_tensor and has_box_tensor
+
     def _run_inference(self, frame: np.ndarray) -> List[ObjectDetection]:
         """Run the actual TFLite inference and parse results.
 
         Converts BGR->RGB before inference. Uses model's own input size.
+        Dispatches to _run_inference_raw() for raw-anchor models.
         Logs all raw detections at DEBUG level for diagnostics.
 
         Args:
@@ -302,6 +324,9 @@ class ObjectDetector(BaseDetector):
         Returns:
             Filtered list of ObjectDetection.
         """
+        if self._raw_output_format:
+            return self._run_inference_raw(frame)
+
         model_h, model_w = self._model_input_hw
         frame_h, frame_w = frame.shape[:2]
 
@@ -370,5 +395,64 @@ class ObjectDetector(BaseDetector):
                     bbox=bbox,
                 )
             )
+
+        return results
+
+    def _run_inference_raw(self, frame: np.ndarray) -> List[ObjectDetection]:
+        """Inference for raw-anchor output format: [1,N,C] scores + [1,N,4] boxes.
+
+        Applies sigmoid over class dimension and picks the highest-scoring anchor
+        per target class. Box decoding requires anchor priors (not available here),
+        so bbox is returned as (0,0,0,0) — sufficient for MVP phone detection which
+        only uses detected/max_confidence, not the bbox.
+
+        Args:
+            frame: BGR image (H, W, 3).
+
+        Returns:
+            At most one ObjectDetection per target class above the confidence threshold.
+        """
+        model_h, model_w = self._model_input_hw
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        resized = cv2.resize(rgb, (model_w, model_h))
+        input_data = np.expand_dims(resized, axis=0)
+
+        input_dtype = self._input_details[0]["dtype"]
+        if input_dtype == np.float32:
+            input_data = input_data.astype(np.float32) / 255.0
+        else:
+            input_data = input_data.astype(input_dtype)
+
+        self._interpreter.set_tensor(self._input_details[0]["index"], input_data)
+        self._interpreter.invoke()
+
+        # Find the class-score tensor [1, N, C] and ignore the box tensor
+        scores_raw = None
+        for detail in self._output_details:
+            tensor = self._interpreter.get_tensor(detail["index"])
+            if len(tensor.shape) == 3 and tensor.shape[-1] > 4:
+                scores_raw = tensor[0]  # [N, C]
+                break
+
+        if scores_raw is None:
+            return []
+
+        # Sigmoid → class probabilities
+        scores_prob = 1.0 / (1.0 + np.exp(-scores_raw.astype(np.float32)))  # [N, C]
+
+        results: List[ObjectDetection] = []
+        for class_id, class_name in self._target_filter.items():
+            if class_id >= scores_prob.shape[1]:
+                continue
+            max_score = float(np.max(scores_prob[:, class_id]))
+            logger.debug(
+                "ObjectDetector raw-anchor: class_id=%d name='%s' max_score=%.3f",
+                class_id, class_name, max_score,
+            )
+            if max_score >= self._config.confidence_threshold:
+                results.append(
+                    ObjectDetection(class_name=class_name, confidence=max_score, bbox=(0, 0, 0, 0))
+                )
 
         return results

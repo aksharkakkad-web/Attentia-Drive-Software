@@ -108,7 +108,7 @@ LSTM_RESET_ABSENT_FRAMES = 10   # PRD §19 — Reset hidden state after face abs
 
 # ─── PHONE DETECTION ─────────────────────────────────────────────────────────
 # PRD §19
-PHONE_CONFIDENCE_THRESHOLD     = 0.70  # PRD §19
+PHONE_CONFIDENCE_THRESHOLD     = 0.50  # PRD §19 says 0.70; lowered for EfficientDet-Lite0
 YOLO_INPUT_RESOLUTION          = 320   # PRD §19
 YOLO_INPUT_RESOLUTION_THROTTLE = 256   # PRD §19 — Reduced when thermal throttle active
 

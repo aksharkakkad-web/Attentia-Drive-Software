@@ -166,6 +166,12 @@ class PipelineManagerV2:
         face_result       = self._face_detector.detect(frame)
         object_detections = self._object_detector.detect(frame)
 
+        if logger.isEnabledFor(logging.DEBUG) and object_detections:
+            summary = ', '.join(
+                f"{d.class_name}={d.confidence:.2f}" for d in object_detections
+            )
+            logger.debug("Frame %d objects: %s", self._frame_id, summary)
+
         # ── Adapter ────────────────────────────────────────────────────────────
         bundle = convert_to_perception_bundle(
             face_result, object_detections, self._frame_id, timestamp_ns

@@ -21,7 +21,7 @@ object_detector:
   enabled: true
   model_path: "models/efficientdet_lite0.tflite"  # EfficientDet-Lite0 with embedded labelmap.
   input_size: [320, 320]
-  confidence_threshold: 0.25
+  confidence_threshold: 0.70  # PRD §19 — single source of truth via PHONE_CONFIDENCE_THRESHOLD
   target_classes: ["cell phone", "cup", "bottle", "book", "laptop"]
   frame_skip: 2           # Run detector every N frames to save compute.
 

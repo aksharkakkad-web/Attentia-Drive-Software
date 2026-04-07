@@ -1,15 +1,17 @@
 """Object detector module for detecting distraction-related objects.
 
 Detects objects like phones, cups, bottles, books, and laptops in the
-driver-facing camera frame using a TFLite SSD model. Returns a list of
-detected objects with class name, confidence, and bounding box.
+driver-facing camera frame. Returns a list of detected objects with
+class name, confidence, and bounding box.
 
-If the model file is missing, returns an empty list (neutral).
-Respects frame_skip to reduce compute: caches results on skipped frames.
+Two backends, tried in order:
+1. MediaPipe Tasks ObjectDetector (preferred — handles anchor decoding,
+   sigmoid, NMS, and label mapping internally via the model's metadata).
+2. Direct TFLite interpreter (fallback — supports both standard 4-tensor
+   SSD postprocessed output and the raw-anchor [1,N,C]+[1,N,4] format).
 
-Label mapping priority:
-1. Embedded label map from TFLite model metadata (most reliable).
-2. Fallback unified map covering all three common COCO labeling schemes.
+If neither backend can load the model, the detector returns an empty list
+and the rest of the pipeline degrades gracefully.
 
 Phase: 1-2 (active).
 """
@@ -137,48 +139,49 @@ def _build_target_filter(
 
 
 class ObjectDetector(BaseDetector):
-    """TFLite SSD object detector for distraction-related objects.
+    """Object detector with MediaPipe Tasks (preferred) and TFLite fallback.
+
+    On construction, tries to initialize the MediaPipe Tasks ObjectDetector
+    (which uses the same .tflite model file but handles anchor decoding,
+    NMS, and label mapping via the model's embedded metadata). If that
+    fails, falls back to a raw TFLite interpreter that supports both the
+    standard 4-tensor postprocessed SSD output and the raw-anchor format.
 
     Filters detections by target_classes and confidence_threshold from config.
     Implements frame_skip: only runs inference every N frames and caches results.
-
-    On model load, attempts to read the embedded label map from the TFLite
-    metadata. If found, uses the exact class IDs from the model. Otherwise
-    falls back to a hardcoded map covering three common COCO label schemes.
-
-    Auto-detects the model's input size from the input tensor shape, so it
-    works with any model resolution (300x300, 320x320, etc.).
     """
 
     def __init__(self, config: ObjectDetectorConfig) -> None:
         super().__init__()
         self._config = config
+        self._frame_count: int = 0
+        self._cached_detections: List[ObjectDetection] = []
+
+        # Backend state
+        self._backend: str = "none"  # "mediapipe" | "tflite" | "none"
+        self._target_set = {t.lower() for t in config.target_classes}
+
+        # MediaPipe state
+        self._mp_detector = None
+        self._mp_timestamp_ms: int = 0
+
+        # TFLite state
         self._interpreter = None
         self._input_details = None
         self._output_details = None
-        self._frame_count: int = 0
-        self._cached_detections: List[ObjectDetection] = []
         self._target_filter: Dict[int, str] = {}
         self._model_input_hw: Tuple[int, int] = tuple(config.input_size)
-
-        # Output tensor indices, resolved by shape at load time
         self._boxes_idx: int = 0
         self._classes_idx: int = 1
         self._scores_idx: int = 2
         self._num_det_idx: int = 3
-        # True when the model uses raw-anchor format: [1,N,C] scores + [1,N,4] boxes
-        # instead of the standard 4-tensor postprocessed SSD format.
         self._raw_output_format: bool = False
 
         if config.enabled:
             self.load_model(config.model_path)
 
     def load_model(self, path: str) -> None:
-        """Load a TFLite SSD object detection model.
-
-        Tries tflite_runtime first, falls back to tensorflow.lite on Windows.
-        Reads embedded label map if available. Auto-detects input size and
-        resolves output tensor indices by shape.
+        """Try MediaPipe Tasks first, fall back to direct TFLite.
 
         Args:
             path: Path to the .tflite model file.
@@ -186,58 +189,161 @@ class ObjectDetector(BaseDetector):
         if not self._check_model_file(path):
             return
 
+        if self._try_load_mediapipe(path):
+            self._backend = "mediapipe"
+            self._model_loaded = True
+            return
+
+        if self._try_load_tflite(path):
+            self._backend = "tflite"
+            self._model_loaded = True
+            return
+
+        logger.warning(
+            "ObjectDetector: All backends failed for '%s' — phone detection disabled.",
+            path,
+        )
+        self._backend = "none"
+        self._model_loaded = False
+
+    # ── MediaPipe backend ──────────────────────────────────────────────────────
+
+    def _try_load_mediapipe(self, path: str) -> bool:
+        """Initialize the MediaPipe Tasks ObjectDetector. Returns True on success."""
+        try:
+            from mediapipe.tasks.python import BaseOptions
+            from mediapipe.tasks.python.vision import (
+                ObjectDetector as MPObjectDetector,
+                ObjectDetectorOptions,
+                RunningMode,
+            )
+        except ImportError:
+            logger.info(
+                "ObjectDetector: mediapipe.tasks not available — trying TFLite fallback."
+            )
+            return False
+
+        try:
+            options = ObjectDetectorOptions(
+                base_options=BaseOptions(model_asset_path=str(path)),
+                running_mode=RunningMode.VIDEO,
+                score_threshold=float(self._config.confidence_threshold),
+                category_allowlist=list(self._config.target_classes),
+                max_results=10,
+            )
+            self._mp_detector = MPObjectDetector.create_from_options(options)
+            logger.info(
+                "ObjectDetector: MediaPipe Tasks backend loaded from '%s' | "
+                "score_threshold=%.2f | targets=%s",
+                path,
+                self._config.confidence_threshold,
+                list(self._config.target_classes),
+            )
+            return True
+        except Exception:
+            logger.exception(
+                "ObjectDetector: MediaPipe Tasks failed to load '%s' — trying TFLite fallback.",
+                path,
+            )
+            self._mp_detector = None
+            return False
+
+    def _detect_mediapipe(self, frame: np.ndarray) -> List[ObjectDetection]:
+        """Run inference via MediaPipe Tasks ObjectDetector."""
+        from mediapipe import Image, ImageFormat
+
+        frame_h, frame_w = frame.shape[:2]
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = Image(image_format=ImageFormat.SRGB, data=rgb)
+
+        # MediaPipe VIDEO mode requires monotonically increasing timestamps in ms
+        self._mp_timestamp_ms += 33  # ~30 fps
+        result = self._mp_detector.detect_for_video(mp_image, self._mp_timestamp_ms)
+
+        results: List[ObjectDetection] = []
+        for det in result.detections:
+            if not det.categories:
+                continue
+            top = det.categories[0]
+            name = (top.category_name or "").strip().lower()
+            if name not in self._target_set:
+                continue
+            confidence = float(top.score)
+
+            bbox = det.bounding_box
+            x_min = int(max(0, bbox.origin_x))
+            y_min = int(max(0, bbox.origin_y))
+            x_max = int(min(frame_w, bbox.origin_x + bbox.width))
+            y_max = int(min(frame_h, bbox.origin_y + bbox.height))
+
+            results.append(
+                ObjectDetection(
+                    class_name=name,
+                    confidence=confidence,
+                    bbox=(x_min, y_min, x_max, y_max),
+                )
+            )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            for d in results:
+                logger.debug(
+                    "ObjectDetector[mediapipe]: %s conf=%.3f bbox=%s",
+                    d.class_name, d.confidence, d.bbox,
+                )
+
+        return results
+
+    # ── TFLite fallback backend ───────────────────────────────────────────────
+
+    def _try_load_tflite(self, path: str) -> bool:
+        """Initialize the direct TFLite interpreter. Returns True on success."""
         try:
             try:
                 from tflite_runtime.interpreter import Interpreter
             except ImportError:
                 from tensorflow.lite.python.interpreter import Interpreter
+        except ImportError:
+            logger.warning(
+                "ObjectDetector: TFLite runtime not installed — phone detection disabled."
+            )
+            return False
 
+        try:
             self._interpreter = Interpreter(model_path=path)
             self._interpreter.allocate_tensors()
             self._input_details = self._interpreter.get_input_details()
             self._output_details = self._interpreter.get_output_details()
 
-            # Auto-detect input size from model
             input_shape = self._input_details[0]["shape"]
             self._model_input_hw = (int(input_shape[1]), int(input_shape[2]))
 
             self._resolve_output_indices()
             self._raw_output_format = self._detect_raw_output_format()
 
-            # Try to load embedded label map
             embedded_map = _load_embedded_labelmap(path)
             self._target_filter = _build_target_filter(
                 embedded_map, self._config.target_classes
             )
 
-            self._model_loaded = True
-
             source = "embedded metadata" if embedded_map else "fallback hardcoded"
-            inp = self._input_details[0]
             fmt = "raw-anchor" if self._raw_output_format else "postprocessed-SSD"
             logger.info(
-                "ObjectDetector: Model loaded from '%s' | "
-                "input=%s %s | %d outputs | format=%s | label source: %s | "
-                "target IDs: %s",
+                "ObjectDetector: TFLite fallback backend loaded from '%s' | "
+                "input=%s | %d outputs | format=%s | label source: %s | targets=%s",
                 path,
                 self._model_input_hw,
-                inp["dtype"],
                 len(self._output_details),
                 fmt,
                 source,
                 dict(self._target_filter),
             )
-        except ImportError:
-            logger.warning(
-                "ObjectDetector: TFLite runtime not installed — phone detection disabled. "
-                "Install tensorflow (macOS) or tflite-runtime (Linux) to enable."
-            )
-            self._model_loaded = False
+            return True
         except Exception:
             logger.exception(
-                "ObjectDetector: Failed to load model from '%s'", path
+                "ObjectDetector: TFLite fallback failed to load '%s'", path
             )
-            self._model_loaded = False
+            self._interpreter = None
+            return False
 
     def _resolve_output_indices(self) -> None:
         """Resolve output tensor indices by shape instead of assuming fixed order.
@@ -271,31 +377,6 @@ class ObjectDetector(BaseDetector):
                 self._classes_idx = rank2_indices[0]
                 self._scores_idx = rank2_indices[1]
 
-    def detect(self, frame: np.ndarray) -> List[ObjectDetection]:
-        """Run object detection on a frame, respecting frame_skip.
-
-        Args:
-            frame: BGR image as numpy array (H, W, 3).
-
-        Returns:
-            List of ObjectDetection for target classes above confidence threshold.
-        """
-        if not self._model_loaded or self._interpreter is None:
-            return []
-
-        self._frame_count += 1
-
-        if self._frame_count % self._config.frame_skip != 1 and self._frame_count != 1:
-            return self._cached_detections
-
-        try:
-            detections = self._run_inference(frame)
-            self._cached_detections = detections
-            return detections
-        except Exception:
-            logger.exception("ObjectDetector: Inference failed")
-            return self._cached_detections
-
     def _detect_raw_output_format(self) -> bool:
         """Return True if the model uses raw-anchor format instead of 4-tensor postprocessed SSD.
 
@@ -311,22 +392,14 @@ class ObjectDetector(BaseDetector):
         has_box_tensor   = any(len(s) == 3 and s[-1] == 4 for s in shapes)
         return has_class_tensor and has_box_tensor
 
-    def _run_inference(self, frame: np.ndarray) -> List[ObjectDetection]:
-        """Run the actual TFLite inference and parse results.
-
-        Converts BGR->RGB before inference. Uses model's own input size.
-        Dispatches to _run_inference_raw() for raw-anchor models.
-        Logs all raw detections at DEBUG level for diagnostics.
-
-        Args:
-            frame: BGR image (H, W, 3).
-
-        Returns:
-            Filtered list of ObjectDetection.
-        """
+    def _detect_tflite(self, frame: np.ndarray) -> List[ObjectDetection]:
+        """Dispatch to raw-anchor or postprocessed-SSD inference."""
         if self._raw_output_format:
             return self._run_inference_raw(frame)
+        return self._run_inference_postprocessed(frame)
 
+    def _run_inference_postprocessed(self, frame: np.ndarray) -> List[ObjectDetection]:
+        """Inference for standard 4-tensor postprocessed SSD output."""
         model_h, model_w = self._model_input_hw
         frame_h, frame_w = frame.shape[:2]
 
@@ -358,16 +431,6 @@ class ObjectDetector(BaseDetector):
             )[0]
         )
 
-        if logger.isEnabledFor(logging.DEBUG):
-            for i in range(num_detections):
-                cid = int(classes[i])
-                score = float(scores[i])
-                target = self._target_filter.get(cid)
-                logger.debug(
-                    "ObjectDetector raw[%d]: class_id=%d score=%.3f target='%s'",
-                    i, cid, score, target or "---",
-                )
-
         results: List[ObjectDetection] = []
         for i in range(num_detections):
             confidence = float(scores[i])
@@ -376,7 +439,6 @@ class ObjectDetector(BaseDetector):
 
             class_id = int(classes[i])
             class_name = self._target_filter.get(class_id)
-
             if class_name is None:
                 continue
 
@@ -389,13 +451,15 @@ class ObjectDetector(BaseDetector):
             )
 
             results.append(
-                ObjectDetection(
-                    class_name=class_name,
-                    confidence=confidence,
-                    bbox=bbox,
-                )
+                ObjectDetection(class_name=class_name, confidence=confidence, bbox=bbox)
             )
 
+        if logger.isEnabledFor(logging.DEBUG):
+            for d in results:
+                logger.debug(
+                    "ObjectDetector[tflite-ssd]: %s conf=%.3f bbox=%s",
+                    d.class_name, d.confidence, d.bbox,
+                )
         return results
 
     def _run_inference_raw(self, frame: np.ndarray) -> List[ObjectDetection]:
@@ -405,12 +469,6 @@ class ObjectDetector(BaseDetector):
         per target class. Box decoding requires anchor priors (not available here),
         so bbox is returned as (0,0,0,0) — sufficient for MVP phone detection which
         only uses detected/max_confidence, not the bbox.
-
-        Args:
-            frame: BGR image (H, W, 3).
-
-        Returns:
-            At most one ObjectDetection per target class above the confidence threshold.
         """
         model_h, model_w = self._model_input_hw
 
@@ -427,7 +485,6 @@ class ObjectDetector(BaseDetector):
         self._interpreter.set_tensor(self._input_details[0]["index"], input_data)
         self._interpreter.invoke()
 
-        # Find the class-score tensor [1, N, C] and ignore the box tensor
         scores_raw = None
         for detail in self._output_details:
             tensor = self._interpreter.get_tensor(detail["index"])
@@ -438,7 +495,6 @@ class ObjectDetector(BaseDetector):
         if scores_raw is None:
             return []
 
-        # Sigmoid → class probabilities
         scores_prob = 1.0 / (1.0 + np.exp(-scores_raw.astype(np.float32)))  # [N, C]
 
         results: List[ObjectDetection] = []
@@ -446,13 +502,47 @@ class ObjectDetector(BaseDetector):
             if class_id >= scores_prob.shape[1]:
                 continue
             max_score = float(np.max(scores_prob[:, class_id]))
-            logger.debug(
-                "ObjectDetector raw-anchor: class_id=%d name='%s' max_score=%.3f",
-                class_id, class_name, max_score,
-            )
             if max_score >= self._config.confidence_threshold:
                 results.append(
                     ObjectDetection(class_name=class_name, confidence=max_score, bbox=(0, 0, 0, 0))
                 )
 
+        if logger.isEnabledFor(logging.DEBUG):
+            for d in results:
+                logger.debug(
+                    "ObjectDetector[tflite-raw]: %s conf=%.3f",
+                    d.class_name, d.confidence,
+                )
         return results
+
+    # ── Public detect ──────────────────────────────────────────────────────────
+
+    def detect(self, frame: np.ndarray) -> List[ObjectDetection]:
+        """Run object detection on a frame, respecting frame_skip.
+
+        Args:
+            frame: BGR image as numpy array (H, W, 3).
+
+        Returns:
+            List of ObjectDetection for target classes above confidence threshold.
+        """
+        if not self._model_loaded:
+            return []
+
+        self._frame_count += 1
+
+        if self._frame_count % self._config.frame_skip != 1 and self._frame_count != 1:
+            return self._cached_detections
+
+        try:
+            if self._backend == "mediapipe":
+                detections = self._detect_mediapipe(frame)
+            elif self._backend == "tflite":
+                detections = self._detect_tflite(frame)
+            else:
+                detections = []
+            self._cached_detections = detections
+            return detections
+        except Exception:
+            logger.exception("ObjectDetector: Inference failed (backend=%s)", self._backend)
+            return self._cached_detections

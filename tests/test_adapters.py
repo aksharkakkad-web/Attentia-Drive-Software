@@ -105,7 +105,7 @@ class TestPhoneDetected:
         assert bundle.phone.bbox_norm == (10, 20, 100, 200)
 
     def test_phone_below_threshold_not_detected(self):
-        """'cell phone' with confidence 0.40 < 0.50 → phone.detected=False."""
+        """'cell phone' with confidence 0.40 < 0.70 → phone.detected=False."""
         fr = _FaceResult(face_visible=True, head_pose=(0.0, 0.0, 0.0))
         dets = [_ObjectDetection('cell phone', 0.40, (0, 0, 0, 0))]
         bundle = convert_to_perception_bundle(fr, dets, 1, 0)

@@ -245,7 +245,8 @@ class TestConfigValues:
         assert cfg.ROAD_ZONE_PITCH_MIN == pytest.approx(-10.0)
 
     def test_road_zone_pitch_max(self):
-        assert cfg.ROAD_ZONE_PITCH_MAX == pytest.approx(15.0)  # widened for desktop testing
+        # PRD §2.2 / §19 — must be +5.0. Upward gaze >5° is OFF road.
+        assert cfg.ROAD_ZONE_PITCH_MAX == pytest.approx(5.0)
 
     def test_t_gaze_seconds(self):
         assert cfg.T_GAZE_SECONDS == pytest.approx(2.0)

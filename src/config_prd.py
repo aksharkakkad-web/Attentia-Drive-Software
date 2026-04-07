@@ -46,7 +46,7 @@ LANDMARK_CONFIDENCE_GATE = 0.65  # PRD §19
 ROAD_ZONE_YAW_MIN   = -15.0  # PRD §19
 ROAD_ZONE_YAW_MAX   = +15.0  # PRD §19
 ROAD_ZONE_PITCH_MIN = -10.0  # PRD §19
-ROAD_ZONE_PITCH_MAX = +15.0  # PRD §19 says +5; widened for desktop testing (webcam above screen)
+ROAD_ZONE_PITCH_MAX = +5.0   # PRD §19 / §2.2
 
 # ─── SPEED ZONES ─────────────────────────────────────────────────────────────
 # PRD §19
@@ -108,7 +108,7 @@ LSTM_RESET_ABSENT_FRAMES = 10   # PRD §19 — Reset hidden state after face abs
 
 # ─── PHONE DETECTION ─────────────────────────────────────────────────────────
 # PRD §19
-PHONE_CONFIDENCE_THRESHOLD     = 0.50  # PRD §19 says 0.70; lowered for EfficientDet-Lite0
+PHONE_CONFIDENCE_THRESHOLD     = 0.70  # PRD §19
 YOLO_INPUT_RESOLUTION          = 320   # PRD §19
 YOLO_INPUT_RESOLUTION_THROTTLE = 256   # PRD §19 — Reduced when thermal throttle active
 

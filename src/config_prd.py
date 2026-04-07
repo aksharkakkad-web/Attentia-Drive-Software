@@ -46,7 +46,7 @@ LANDMARK_CONFIDENCE_GATE = 0.65  # PRD §19
 ROAD_ZONE_YAW_MIN   = -15.0  # PRD §19
 ROAD_ZONE_YAW_MAX   = +15.0  # PRD §19
 ROAD_ZONE_PITCH_MIN = -10.0  # PRD §19
-ROAD_ZONE_PITCH_MAX = +5.0   # PRD §19
+ROAD_ZONE_PITCH_MAX = +15.0  # PRD §19 says +5; widened for desktop testing (webcam above screen)
 
 # ─── SPEED ZONES ─────────────────────────────────────────────────────────────
 # PRD §19

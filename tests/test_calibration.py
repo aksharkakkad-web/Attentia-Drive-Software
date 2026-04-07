@@ -94,7 +94,13 @@ class TestInsufficientFrames:
         assert cal.status == 'failed'
 
     def test_hard_timeout_fails(self):
-        """Hard timeout at 2× target duration (300 frames) with no face visible."""
+        """Face never visible → early failure fires at expected_frames (150), not hard timeout (300).
+
+        When face_visible=False every frame, valid_count stays 0. At frame 150
+        (== expected_frames), the early-failure check fires before the 300-frame
+        hard timeout is ever reached. Feeding all 300 frames still results in
+        status='failed'; the extra 150 calls are no-ops because status is already terminal.
+        """
         cal = Calibration(target_duration_s=5.0, fps=30.0)
         done = False
         for _ in range(300):
@@ -194,3 +200,68 @@ class TestReset:
             cal.feed_frame(5.0, 3.0, 0.30, True)
         assert cal.status == 'complete'
         assert cal.quality_ok is True
+
+
+# ── Test 6: Calibration diagnostics ──────────────────────────────────────────
+
+class TestCalibrationDiagnostics:
+    def test_failure_reason_insufficient_face_frames(self):
+        """Early failure (too few visible frames) sets failure_reason='insufficient_face_frames'."""
+        cal = Calibration(target_duration_s=5.0, fps=30.0)
+        for _ in range(150):
+            cal.feed_frame(5.0, 3.0, 0.30, face_visible=False)
+        assert cal.status == 'failed'
+        assert cal.failure_reason == 'insufficient_face_frames'
+
+    def test_failure_reason_pose_std_too_high(self):
+        """Quality gate failure (std >= 5°) sets failure_reason='pose_std_too_high'."""
+        cal = Calibration(target_duration_s=5.0, fps=30.0)
+        # Alternating yaw 13°/-3° → mean=5°, std=8° > 5° threshold
+        for i in range(150):
+            yaw = 13.0 if i % 2 == 0 else -3.0
+            cal.feed_frame(yaw, 3.0, 0.30, True)
+        assert cal.status == 'failed'
+        assert cal.failure_reason == 'pose_std_too_high'
+
+    def test_frame_count_properties_mid_calibration(self):
+        """valid_frame_count and total_frame_count track correctly during collection."""
+        cal = Calibration(target_duration_s=5.0, fps=30.0)
+        # 20 invisible frames then 30 visible — still collecting
+        for _ in range(20):
+            cal.feed_frame(0.0, 0.0, 0.0, face_visible=False)
+        for _ in range(30):
+            cal.feed_frame(5.0, 3.0, 0.30, face_visible=True)
+        assert cal.total_frame_count == 50
+        assert cal.valid_frame_count == 30
+
+    def test_min_valid_frame_count_and_expected_frame_count(self):
+        """min_valid_frame_count == 135 and expected_frame_count == 150 for 5s at 30fps."""
+        cal = Calibration(target_duration_s=5.0, fps=30.0)
+        assert cal.min_valid_frame_count == 135   # 90% of 150
+        assert cal.expected_frame_count == 150
+
+    def test_reset_clears_failure_reason(self):
+        """reset() clears failure_reason back to ''."""
+        cal = Calibration(target_duration_s=5.0, fps=30.0)
+        for _ in range(150):
+            cal.feed_frame(5.0, 3.0, 0.30, face_visible=False)
+        assert cal.failure_reason == 'insufficient_face_frames'
+        cal.reset()
+        assert cal.failure_reason == ''
+
+    def test_reset_clears_frame_counts(self):
+        """reset() resets valid_frame_count and total_frame_count to 0."""
+        cal = Calibration(target_duration_s=5.0, fps=30.0)
+        for _ in range(50):
+            cal.feed_frame(5.0, 3.0, 0.30, face_visible=True)
+        cal.reset()
+        assert cal.valid_frame_count == 0
+        assert cal.total_frame_count == 0
+
+    def test_failure_reason_empty_on_success(self):
+        """Successful calibration leaves failure_reason as ''."""
+        cal = Calibration(target_duration_s=5.0, fps=30.0)
+        for _ in range(150):
+            cal.feed_frame(5.0, 3.0, 0.30, True)
+        assert cal.status == 'complete'
+        assert cal.failure_reason == ''

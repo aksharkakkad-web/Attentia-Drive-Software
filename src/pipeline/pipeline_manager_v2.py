@@ -25,8 +25,6 @@ from src.config_loader import (
     load_config,
 )
 from src.config_prd import (
-    CALIBRATION_DURATION_S,
-    CAPTURE_FPS,
     COOLDOWN_VISUAL,
     DEGRADED_RECOVERY_FRAMES,
     DEGRADED_TRIGGER_FRAMES,
@@ -212,9 +210,22 @@ class PipelineManagerV2:
                     self._calibration.neutral_pitch_offset,
                     self._calibration.baseline_ear,
                 )
+                if self._calibration.status == 'failed':
+                    logger.warning(
+                        "Calibration failed — reason: %s | valid_frames=%d min_required=%d",
+                        self._calibration.failure_reason,
+                        self._calibration.valid_frame_count,
+                        self._calibration.min_valid_frame_count,
+                    )
 
             if self._display:
-                self._draw_calibrating(frame)
+                self._draw_calibrating(
+                    frame,
+                    valid=self._calibration.valid_frame_count,
+                    min_valid=self._calibration.min_valid_frame_count,
+                    total=self._calibration.total_frame_count,
+                    expected=self._calibration.expected_frame_count,
+                )
                 cv2.imshow(_WINDOW, frame)
             return
 
@@ -262,18 +273,24 @@ class PipelineManagerV2:
 
     # ── Display helpers ────────────────────────────────────────────────────────
 
-    def _draw_calibrating(self, frame: np.ndarray) -> None:
-        """Draw calibration overlay."""
+    def _draw_calibrating(
+        self,
+        frame: np.ndarray,
+        valid: int,
+        min_valid: int,
+        total: int,
+        expected: int,
+    ) -> None:
+        """Draw calibration overlay with frame progress."""
         h, w = frame.shape[:2]
         overlay = frame.copy()
         cv2.rectangle(overlay, (0, 0), (w, 90), (20, 20, 20), -1)
         cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
 
-        target = int(CAPTURE_FPS * CALIBRATION_DURATION_S)
         cv2.putText(frame, 'CALIBRATING — hold still',
                     (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.9, _YELLOW, 2)
         cv2.putText(frame,
-                    f'Target: {target} frames at {CAPTURE_FPS} fps (~{CALIBRATION_DURATION_S:.0f}s)',
+                    f'Valid: {valid}/{min_valid} | Total: {total}/{expected}',
                     (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.55, _WHITE, 1)
 
     def _draw_overlay(

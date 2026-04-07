@@ -4,11 +4,22 @@ Real-time distracted driving detection using on-device computer vision. Privacy-
 
 ## Quick Start
 
+> **Working directory:** All commands below must be run from the `Attentia-Drive-Software/` directory, not the parent repo root.
+
 ### Install
 
 ```bash
 pip install -r requirements.txt
 ```
+
+**macOS — phone detection (optional):**
+Phone detection requires TensorFlow (~500 MB). If you want it enabled, install the macOS requirements instead:
+
+```bash
+pip install -r requirements-macos.txt
+```
+
+Without this, phone detection is disabled with a warning log on startup and all other features work normally.
 
 ### Run with Webcam
 

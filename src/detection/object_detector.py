@@ -221,6 +221,12 @@ class ObjectDetector(BaseDetector):
                 source,
                 dict(self._target_filter),
             )
+        except ImportError:
+            logger.warning(
+                "ObjectDetector: TFLite runtime not installed — phone detection disabled. "
+                "Install tensorflow (macOS) or tflite-runtime (Linux) to enable."
+            )
+            self._model_loaded = False
         except Exception:
             logger.exception(
                 "ObjectDetector: Failed to load model from '%s'", path

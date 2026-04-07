@@ -62,6 +62,7 @@ class Calibration:
         self._baseline_ear: float = EAR_BASELINE_POPULATION_DEFAULT
         self._close_threshold: float = EAR_DEFAULT_CLOSE_THRESHOLD
         self._quality_ok: bool = False
+        self._failure_reason: str = ''
 
     # ── Public interface ──────────────────────────────────────────────────────
 
@@ -105,12 +106,12 @@ class Calibration:
 
         # Early failure: target duration elapsed but insufficient visible frames
         if self._total_frames >= self._expected_frames and n_valid < self._min_valid_frames:
-            self._fail()
+            self._fail("insufficient_face_frames")
             return True
 
         # Hard timeout: twice the target duration without enough valid frames
         if self._total_frames >= self._timeout_frames:
-            self._fail()
+            self._fail("insufficient_face_frames")
             return True
 
         return False
@@ -127,6 +128,7 @@ class Calibration:
         self._baseline_ear = EAR_BASELINE_POPULATION_DEFAULT
         self._close_threshold = EAR_DEFAULT_CLOSE_THRESHOLD
         self._quality_ok = False
+        self._failure_reason = ''
 
     # ── Properties ────────────────────────────────────────────────────────────
 
@@ -165,6 +167,31 @@ class Calibration:
         """EAR close threshold = baseline_ear * 0.75. Default 0.21 on failure."""
         return self._close_threshold
 
+    @property
+    def valid_frame_count(self) -> int:
+        """Number of frames with face visible collected so far."""
+        return len(self._yaw_samples)
+
+    @property
+    def total_frame_count(self) -> int:
+        """Total frames fed since last reset (includes face-absent frames)."""
+        return self._total_frames
+
+    @property
+    def min_valid_frame_count(self) -> int:
+        """Minimum face-visible frames required for success (90% of expected)."""
+        return self._min_valid_frames
+
+    @property
+    def expected_frame_count(self) -> int:
+        """Expected total frames for the target calibration duration."""
+        return self._expected_frames
+
+    @property
+    def failure_reason(self) -> str:
+        """Why calibration failed: 'insufficient_face_frames' | 'pose_std_too_high' | ''."""
+        return self._failure_reason
+
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _finalize(self) -> bool:
@@ -191,12 +218,13 @@ class Calibration:
             self._quality_ok = True
             self._status = 'complete'
         else:
-            self._fail()
+            self._fail("pose_std_too_high")
 
         return True
 
-    def _fail(self) -> None:
+    def _fail(self, reason: str = '') -> None:
         """Enter failed state with safe defaults."""
+        self._failure_reason = reason
         self._neutral_yaw_offset = 0.0
         self._neutral_pitch_offset = 0.0
         self._baseline_ear = EAR_BASELINE_POPULATION_DEFAULT

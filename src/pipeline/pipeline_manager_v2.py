@@ -28,10 +28,12 @@ from src.config_prd import (
     COOLDOWN_VISUAL,
     DEGRADED_RECOVERY_FRAMES,
     DEGRADED_TRIGGER_FRAMES,
+    YOLO_PHONE_MODEL_PATH,
 )
 from src.contracts import AlertCommand, SignalFrame, TemporalFeatures
 from src.detection.face_detector import FaceDetector
 from src.detection.object_detector import ObjectDetector
+from src.detection.phone_detector_yolo import PhoneDetectorYolo
 from src.logic.alert_state_machine import AlertStateMachine
 from src.logic.calibration import Calibration
 from src.logic.scoring_engine import ScoringEngine
@@ -104,7 +106,31 @@ class PipelineManagerV2:
 
         obj_config = config.object_detector
         obj_config.enabled = True
-        self._object_detector = ObjectDetector(obj_config)
+
+        # YOLOv8-nano ONNX phone detector (primary — PRD §FR-1.4: every frame).
+        # frame_skip=1 forces inference on every frame regardless of config.yaml.
+        from dataclasses import replace as _replace
+        yolo_config = _replace(
+            obj_config,
+            model_path=YOLO_PHONE_MODEL_PATH,
+            target_classes=['cell phone'],
+            frame_skip=1,
+        )
+        self._phone_detector_yolo = PhoneDetectorYolo(yolo_config)
+
+        if self._phone_detector_yolo.is_available():
+            # YOLO handles phones; ObjectDetector handles all other target classes
+            # (cup, bottle, book, laptop) with no phone path active.
+            non_phone_classes = [c for c in obj_config.target_classes if c != 'cell phone']
+            non_phone_config = _replace(obj_config, target_classes=non_phone_classes)
+            self._object_detector = ObjectDetector(non_phone_config)
+            logger.info("Phone detection: YOLOv8-nano ONNX (primary)")
+        else:
+            # YOLO failed — ObjectDetector handles all targets including phone.
+            self._object_detector = ObjectDetector(obj_config)
+            logger.warning(
+                "Phone detection: YOLOv8 ONNX unavailable — falling back to ObjectDetector"
+            )
 
         # ── Pipeline layers ────────────────────────────────────────────────────
         fps = float(config.frame_source.target_fps)
@@ -164,7 +190,12 @@ class PipelineManagerV2:
     def _process_frame(self, frame: np.ndarray, timestamp_ns: int) -> None:
         # ── Detection ──────────────────────────────────────────────────────────
         face_result       = self._face_detector.detect(frame)
-        object_detections = self._object_detector.detect(frame)
+        # YOLO handles phones every frame (frame_skip=1). ObjectDetector handles
+        # all other classes (or all classes when YOLO is unavailable). No merging
+        # needed — target_classes on each detector are mutually exclusive at init.
+        phone_detections  = self._phone_detector_yolo.detect(frame)
+        other_detections  = self._object_detector.detect(frame)
+        object_detections = phone_detections + other_detections
 
         if logger.isEnabledFor(logging.DEBUG) and object_detections:
             summary = ', '.join(

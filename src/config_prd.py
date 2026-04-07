@@ -20,6 +20,7 @@ YOLO_MODEL_PATH      = 'models/yolov8n_phone.rknn'      # PRD §19
 # MVP model paths (MediaPipe + EfficientDet TFLite — macOS dev target)
 FACE_LANDMARKER_MODEL_PATH = 'models/face_landmarker.task'
 EFFICIENTDET_MODEL_PATH    = 'models/efficientdet_lite0.tflite'
+YOLO_PHONE_MODEL_PATH      = 'models/yolov8n_phone.onnx'        # PRD §19 — YOLOv8-nano ONNX, single-class phone
 
 # ─── CAMERA / ISP (IMX219 + RK3568 — v2.0.0) ─────────────────────────────────
 # PRD §19

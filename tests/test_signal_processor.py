@@ -319,3 +319,33 @@ class TestResetFilters:
         # After reset, initialized fresh at 0° — must be near 0
         assert abs(result.head_pose.yaw_deg) < 1.0
         assert abs(result.head_pose.pitch_deg) < 1.0
+
+
+# ── Kalman responsiveness after double-filter removal ─────────────────────────
+
+class TestGazeResponsiveness:
+    def test_on_road_recovers_within_5_frames_after_snapping_back(self):
+        """After 20 frames at yaw=20° (off-road), snapping back to 0° → on_road within 5 frames.
+
+        Verifies the double-Kalman fix: with a single filter the head-pose estimate
+        crosses back inside the ±15° road zone quickly. Without the fix (double-filter),
+        this would take ~10 frames.
+        """
+        sp = SignalProcessor()
+        # Warm up: establish off-road state for 20 frames
+        for _ in range(20):
+            result = sp.process(_bundle_face(yaw=20.0, pitch=0.0))
+        assert result.gaze_world.on_road is False, "Should be off-road after 20 frames at 20°"
+
+        # Snap back to 0° — count how many frames until on_road flips True
+        recovered = False
+        for i in range(5):
+            result = sp.process(_bundle_face(yaw=0.0, pitch=0.0))
+            if result.gaze_world.on_road:
+                recovered = True
+                break
+
+        assert recovered, (
+            f"Expected on_road=True within 5 frames of returning to 0°. "
+            f"Last yaw: {result.gaze_world.yaw_deg:.2f}° (must be within ±15°)"
+        )

@@ -47,7 +47,7 @@ LANDMARK_CONFIDENCE_GATE = 0.65  # PRD §19
 ROAD_ZONE_YAW_MIN   = -15.0  # PRD §19
 ROAD_ZONE_YAW_MAX   = +15.0  # PRD §19
 ROAD_ZONE_PITCH_MIN = -10.0  # PRD §19
-ROAD_ZONE_PITCH_MAX = +5.0   # PRD §19 / §2.2
+ROAD_ZONE_PITCH_MAX = +8.0   # PRD §19 / §2.2 — MVP override: +5° was too tight; natural seated driving reaches +7-8° pitch
 
 # ─── SPEED ZONES ─────────────────────────────────────────────────────────────
 # PRD §19
@@ -70,7 +70,7 @@ GPS_PORT       = '/dev/ttyS3'    # PRD §19
 # PRD §19 — How long a condition must be sustained to trigger an alert.
 T_GAZE_SECONDS        = 2.0  # PRD §19
 T_HEAD_SECONDS        = 1.5  # PRD §19
-T_PHONE_SECONDS       = 1.0  # PRD §19
+T_PHONE_SECONDS       = 0.0  # PRD §19 — MVP: instant phone alert, first active phone frame
 T_FACE_ABSENT_SECONDS = 5.0  # PRD §19
 
 # ─── HEAD POSE THRESHOLDS ────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ THERMAL_CHECK_INTERVAL_S = 5.0   # PRD §19
 # MVP OVERRIDE: 5.0s instead of PRD's 10.0s. EAR baseline uses same window.
 CALIBRATION_DURATION_S        = 5.0    # PRD says 10.0 — MVP override: faster startup
 CALIBRATION_MIN_VALID_FRAMES  = 270    # PRD §19 — 90% of 300 frames
-CALIBRATION_MAX_POSE_STD_DEG  = 5.0    # PRD §19 — Reject calibration if std dev >= 5°
+CALIBRATION_MAX_POSE_STD_DEG  = 10.0   # PRD §19 says 5° — MVP override: 10° allows natural seated micro-movement
 NEUTRAL_POSE_FILE             = 'calibration/session_state.json'  # PRD §19
 CALIBRATION_REQUIRED_ON_VIN_CHANGE = True  # PRD §19
 

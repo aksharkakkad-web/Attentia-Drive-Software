@@ -69,8 +69,13 @@ class ScoringEngine:
         d = 0.0 if parked else d_raw * speed_modifier
 
         # ── Threshold breach flags ─────────────────────────────────────────────
-        # Phone breach is independent of speed zone (PRD §6.2 ALT-04)
-        phone_threshold_breached = features.phone_continuous_secs >= T_PHONE_SECONDS
+        # Phone breach is independent of speed zone (PRD §6.2 ALT-04).
+        # When T_PHONE_SECONDS == 0.0 (instant alert), use strict > to avoid
+        # the false positive 0.0 >= 0.0 that fires when no phone is present.
+        if T_PHONE_SECONDS == 0.0:
+            phone_threshold_breached = features.phone_continuous_secs > 0.0
+        else:
+            phone_threshold_breached = features.phone_continuous_secs >= T_PHONE_SECONDS
 
         if parked:
             # PARKED: all non-phone breaches suppressed
@@ -85,7 +90,18 @@ class ScoringEngine:
             perclos_threshold_breached = (
                 features.perclos >= PERCLOS_ALERT_THRESHOLD and features.perclos_valid
             )
-            composite_threshold_breached = d >= COMPOSITE_ALERT_THRESHOLD
+            # Composite requires at least one currently-active contributor.
+            # gaze_off_road_fraction and head_deviation_mean are buffer averages
+            # that can stay elevated for up to 4s after recovery — without this
+            # guard, composite keeps firing from stale history alone.
+            currently_distracted = (
+                features.gaze_continuous_secs > 0.0
+                or features.head_continuous_secs > 0.0
+                or perclos_threshold_breached
+            )
+            composite_threshold_breached = (
+                d >= COMPOSITE_ALERT_THRESHOLD and currently_distracted
+            )
             face_absent_threshold_breached = (
                 features.face_absent_continuous_secs >= T_FACE_ABSENT_SECONDS
             )

@@ -99,9 +99,10 @@ class TestScoringEngine:
 
     # Test 3
     def test_gaze_1_and_head_30_gives_0_75_composite_breached(self):
-        """gaze=1.0 + head_deviation=30.0 → composite=0.75, breached."""
+        """gaze=1.0 + head_deviation=30.0 with active gaze timer → composite=0.75, breached."""
         se = ScoringEngine()
-        result = se.score(_features(gaze_fraction=1.0, head_mean=30.0))
+        # gaze_secs=2.5 ensures at least one currently-active contributor exists
+        result = se.score(_features(gaze_fraction=1.0, gaze_secs=2.5, head_mean=30.0))
         assert result.composite_score == pytest.approx(0.75)
         assert result.composite_threshold_breached is True
 
@@ -142,7 +143,7 @@ class TestScoringEngine:
 
     # Test 7
     def test_phone_continuous_secs_1_5_triggers_phone_breach(self):
-        """phone_continuous_secs=1.5 >= T_PHONE_SECONDS=1.0 → phone_threshold_breached=True."""
+        """phone_continuous_secs=1.5 > T_PHONE_SECONDS=0.0 → phone_threshold_breached=True."""
         se = ScoringEngine()
         result = se.score(_features(phone_secs=1.5))
         assert result.phone_threshold_breached is True
@@ -353,3 +354,104 @@ class TestAlertStateMachine:
         for _ in range(29):
             asm.update(_score_no_breaches(), signals_valid=True)
         assert asm._is_degraded is True  # still degraded
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHONE INSTANT ALERT — T_PHONE_SECONDS = 0.0
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestInstantPhoneAlert:
+    def test_phone_zero_secs_does_not_breach(self):
+        """phone_continuous_secs=0.0 with T_PHONE_SECONDS=0.0 → no breach (no phone present)."""
+        se = ScoringEngine()
+        result = se.score(_features(phone_secs=0.0))
+        assert result.phone_threshold_breached is False
+
+    def test_phone_first_active_frame_breaches(self):
+        """phone_continuous_secs=0.033 (one frame at 30fps) → instant breach."""
+        se = ScoringEngine()
+        result = se.score(_features(phone_secs=0.033))
+        assert result.phone_threshold_breached is True
+
+    def test_phone_breach_in_parked_mode(self):
+        """Phone breach fires even at speed_modifier=0.0 (parked)."""
+        se = ScoringEngine()
+        result = se.score(_features(phone_secs=0.033, speed_modifier=0.0))
+        assert result.phone_threshold_breached is True
+
+    def test_no_phone_parked_does_not_breach(self):
+        """No phone, parked → phone_threshold_breached=False."""
+        se = ScoringEngine()
+        result = se.score(_features(phone_secs=0.0, speed_modifier=0.0))
+        assert result.phone_threshold_breached is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GAZE / HEAD RECOVERY — breach flags clear on same frame, composite guards
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestRecoveryBehavior:
+    def test_gaze_breach_clears_immediately_when_timer_resets(self):
+        """gaze_continuous_secs=0.0 → gaze_threshold_breached=False immediately."""
+        se = ScoringEngine()
+        result = se.score(_features(gaze_secs=0.0))
+        assert result.gaze_threshold_breached is False
+
+    def test_head_breach_clears_immediately_when_timer_resets(self):
+        """head_continuous_secs=0.0 → head_threshold_breached=False immediately."""
+        se = ScoringEngine()
+        result = se.score(_features(head_secs=0.0))
+        assert result.head_threshold_breached is False
+
+    def test_composite_does_not_fire_from_stale_history_alone(self):
+        """High gaze_off_road_fraction + high head_mean but both timers at 0 → no composite breach.
+
+        Simulates the driver just looked back on-road after 4s of distraction.
+        Buffer history is still full of off-road frames, but no current contributor.
+        """
+        se = ScoringEngine()
+        result = se.score(_features(
+            gaze_fraction=1.0,   # buffer full of off-road history
+            head_mean=30.0,      # buffer full of large head deviations
+            gaze_secs=0.0,       # but driver is currently looking on-road
+            head_secs=0.0,       # and head is currently straight
+        ))
+        # Composite score is high (0.75) but should not breach without current activity
+        assert result.composite_score == pytest.approx(0.75)
+        assert result.composite_threshold_breached is False
+
+    def test_composite_fires_when_currently_distracted_and_history_high(self):
+        """Stale history AND currently distracted → composite breach fires."""
+        se = ScoringEngine()
+        result = se.score(_features(
+            gaze_fraction=1.0,
+            gaze_secs=3.0,   # currently off-road (active contributor)
+            head_mean=30.0,
+        ))
+        assert result.composite_threshold_breached is True
+
+    def test_composite_fires_from_perclos_alone(self):
+        """If perclos is the only contributor, composite can still breach."""
+        se = ScoringEngine()
+        result = se.score(_features(
+            gaze_fraction=1.0,   # stale history
+            head_mean=30.0,
+            gaze_secs=0.0,       # driver looking on-road now
+            head_secs=0.0,
+            perclos=0.20,
+            perclos_valid=True,  # drowsiness is current — valid contributor
+        ))
+        assert result.composite_threshold_breached is True
+
+    def test_composite_suppressed_after_recovery_no_perclos(self):
+        """After recovery with no drowsiness, composite is suppressed from stale data."""
+        se = ScoringEngine()
+        result = se.score(_features(
+            gaze_fraction=1.0,
+            head_mean=30.0,
+            gaze_secs=0.0,
+            head_secs=0.0,
+            perclos=0.0,
+            perclos_valid=False,
+        ))
+        assert result.composite_threshold_breached is False

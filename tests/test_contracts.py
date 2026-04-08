@@ -245,8 +245,8 @@ class TestConfigValues:
         assert cfg.ROAD_ZONE_PITCH_MIN == pytest.approx(-10.0)
 
     def test_road_zone_pitch_max(self):
-        # PRD §2.2 / §19 — must be +5.0. Upward gaze >5° is OFF road.
-        assert cfg.ROAD_ZONE_PITCH_MAX == pytest.approx(5.0)
+        # PRD §2.2 / §19 — MVP override: +8.0° (PRD says +5.0°). Widened to reduce false D-A for natural seated driving posture.
+        assert cfg.ROAD_ZONE_PITCH_MAX == pytest.approx(8.0)
 
     def test_t_gaze_seconds(self):
         assert cfg.T_GAZE_SECONDS == pytest.approx(2.0)
@@ -255,7 +255,7 @@ class TestConfigValues:
         assert cfg.T_HEAD_SECONDS == pytest.approx(1.5)
 
     def test_t_phone_seconds(self):
-        assert cfg.T_PHONE_SECONDS == pytest.approx(1.0)
+        assert cfg.T_PHONE_SECONDS == pytest.approx(0.0)  # MVP: instant alert
 
     def test_t_face_absent_seconds(self):
         assert cfg.T_FACE_ABSENT_SECONDS == pytest.approx(5.0)

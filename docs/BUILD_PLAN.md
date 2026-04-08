@@ -127,7 +127,7 @@ curl -L -o models/face_landmarker.task "https://storage.googleapis.com/mediapipe
 For the phone/object detector, check if models/efficientdet_lite0.tflite exists. If not, download it:
 curl -L -o models/efficientdet_lite0.tflite "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/latest/efficientdet_lite0.tflite"
 
-STEP 6 — Update requirements.txt to:
+STEP 6 — UpdatThe current behavior is correct and matches the PRD. Alerts CAN fire on individual signals_valid=False frames — suppression only happens after entering DEGRADED state (60 consecutive invalid frames). This is by design per PRD §7.3 P-04. No fix needed. Move one requirements.txt to:
 opencv-python>=4.8.0
 numpy>=1.24.0
 PyYAML>=6.0

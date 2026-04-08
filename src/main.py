@@ -51,6 +51,11 @@ def parse_args() -> argparse.Namespace:
         default="INFO",
         help="Logging level (default: INFO)",
     )
+    parser.add_argument(
+        "--save-frames",
+        action="store_true",
+        help="Save one debug frame per second + session_log.jsonl to debug_frames/<timestamp>/",
+    )
     return parser.parse_args()
 
 
@@ -76,6 +81,7 @@ def main() -> None:
         source=args.source,
         display=not args.no_display,
         config_path=args.config,
+        save_frames=args.save_frames,
     )
     pipeline.run()
 

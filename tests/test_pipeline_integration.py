@@ -165,18 +165,25 @@ class TestGazeOffRoadAlert:
         assert 58 <= first_idx <= 62, f"alert fired at frame {first_idx}, expected ~60"
 
 
-# ── Test 2: phone detected for 45 frames triggers alert ~frame 30 ────────────
+# ── Test 2: phone detected → instant alert on first active frame ─────────────
 
 class TestPhoneAlert:
-    def test_phone_alert_at_1_second(self):
+    def test_phone_alert_fires_instantly(self):
+        """Phone alert fires on the first frame with phone_continuous_secs > 0.
+
+        T_PHONE_SECONDS = 0.0 (MVP instant alert). The timer accumulates one
+        frame's worth of delta (~0.033s) before scoring, so the breach fires
+        on the second phone frame (frame index 1, since frame 0 initialises
+        the timer to delta from default_delta=1/30).
+        """
         pipe = _Pipeline()
-        _stream(45, pipe, phone_detected=True, phone_confidence=0.85)
+        _stream(5, pipe, phone_detected=True, phone_confidence=0.85)
 
         assert pipe.alerts, "expected phone alert"
         first_idx, first_alert = pipe.alerts[0]
         assert first_alert.alert_type == AlertType.PHONE_USE
-        # 1.0s at 30 fps = frame 30. Allow ±2 frames.
-        assert 28 <= first_idx <= 32, f"phone alert fired at frame {first_idx}, expected ~30"
+        # Instant: alert fires within the first 3 frames
+        assert first_idx <= 2, f"phone alert fired at frame {first_idx}, expected ≤2"
 
 
 # ── Test 3: 100 normal frames produce no alerts and no breaches ──────────────

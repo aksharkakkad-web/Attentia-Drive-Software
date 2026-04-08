@@ -190,11 +190,15 @@ class SignalProcessor:
             calibration_complete=self._calibration_complete,
         )
 
-        # MVP gaze: world-space gaze = corrected head pose (PRD §5.3 MVP path)
-        # When real gaze model arrives: gaze_world = gaze_camera + 0.7*head.
-        # Only this step changes — everything downstream is already correct.
-        gaze_world_yaw = self._kf_gaze_yaw.update(corrected_yaw)
-        gaze_world_pitch = self._kf_gaze_pitch.update(corrected_pitch)
+        # MVP gaze: world-space gaze = corrected head pose (PRD §5.3 MVP path).
+        # corrected_yaw/pitch are already Kalman-filtered by kf_yaw/kf_pitch above.
+        # Passing them through kf_gaze_* would double-filter the signal, roughly
+        # doubling the lag before on_road flips back after the driver recovers
+        # (~7-10 frames instead of ~3 frames from 20° back to on-road at R=4.0).
+        # kf_gaze_* stay instantiated for when the real gaze model replaces this path;
+        # at that point restore: gaze_world_yaw = kf_gaze_yaw.update(eye_gaze + 0.7*head)
+        gaze_world_yaw = corrected_yaw
+        gaze_world_pitch = corrected_pitch
 
         on_road = (
             ROAD_ZONE_YAW_MIN <= gaze_world_yaw <= ROAD_ZONE_YAW_MAX

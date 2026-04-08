@@ -10,8 +10,11 @@ Calibration runs during the first ~5 seconds before scoring begins.
 PRD §4 — Pipeline architecture.
 """
 
+import json
 import logging
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import cv2
@@ -72,8 +75,21 @@ class PipelineManagerV2:
         source: Optional[str] = None,
         display: bool = True,
         config_path: str = 'config.yaml',
+        save_frames: bool = False,
     ) -> None:
         self._display = display
+
+        # ── Debug frame saver ──────────────────────────────────────────────────
+        self._save_frames = save_frames
+        self._save_dir: Optional[Path] = None
+        self._save_log = None  # open file handle for session_log.jsonl
+        self._frames_since_save: int = 0
+        if save_frames:
+            session_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            self._save_dir = Path('debug_frames') / session_ts
+            self._save_dir.mkdir(parents=True, exist_ok=True)
+            self._save_log = open(self._save_dir / 'session_log.jsonl', 'w')
+            logger.info("Frame saver: writing to %s", self._save_dir)
 
         # ── Load config ────────────────────────────────────────────────────────
         try:
@@ -164,6 +180,9 @@ class PipelineManagerV2:
         finally:
             self._frame_source.release()
             cv2.destroyAllWindows()
+            if self._save_log is not None:
+                self._save_log.close()
+                logger.info("Frame saver: session closed — %s", self._save_dir)
             logger.info("Pipeline stopped")
 
     # ── Main loop ──────────────────────────────────────────────────────────────
@@ -255,7 +274,7 @@ class PipelineManagerV2:
                         self._calibration.min_valid_frame_count,
                     )
 
-            if self._display:
+            if self._display or self._save_frames:
                 self._draw_calibrating(
                     frame,
                     valid=self._calibration.valid_frame_count,
@@ -263,7 +282,14 @@ class PipelineManagerV2:
                     total=self._calibration.total_frame_count,
                     expected=self._calibration.expected_frame_count,
                 )
-                cv2.imshow(_WINDOW, frame)
+                if self._display:
+                    cv2.imshow(_WINDOW, frame)
+            if self._save_frames:
+                self._frames_since_save += 1
+                if self._frames_since_save >= 30:
+                    self._frames_since_save = 0
+                    frame_name = f'frame_{self._frame_id:06d}_cal.jpg'
+                    cv2.imwrite(str(self._save_dir / frame_name), frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
             return
 
         # ── Active pipeline ────────────────────────────────────────────────────
@@ -288,9 +314,58 @@ class PipelineManagerV2:
                 distraction_score.composite_score,
             )
 
-        if self._display:
+        if self._display or self._save_frames:
             self._draw_overlay(frame, signal_frame, temporal_features, distraction_score)
-            cv2.imshow(_WINDOW, frame)
+            if self._display:
+                cv2.imshow(_WINDOW, frame)
+
+        if self._save_frames:
+            self._maybe_save_frame(frame, signal_frame, temporal_features, distraction_score, alert_cmd)
+
+    # ── Frame saver ────────────────────────────────────────────────────────────
+
+    def _maybe_save_frame(self, frame, signal_frame, temporal_features, distraction_score, alert_cmd) -> None:
+        """Save one JPEG + one JSONL log line per second."""
+        self._frames_since_save += 1
+        fps_approx = 30
+        if self._frames_since_save < fps_approx:
+            return
+        self._frames_since_save = 0
+
+        frame_name = f'frame_{self._frame_id:06d}.jpg'
+        cv2.imwrite(str(self._save_dir / frame_name), frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
+
+        hp = signal_frame.head_pose
+        gw = signal_frame.gaze_world
+        es = signal_frame.eye_signals
+        record = {
+            'frame': self._frame_id,
+            'ts': datetime.now().isoformat(),
+            'face_present': signal_frame.face_present,
+            'signals_valid': signal_frame.signals_valid,
+            'head_yaw': round(hp.yaw_deg, 2) if hp else None,
+            'head_pitch': round(hp.pitch_deg, 2) if hp else None,
+            'on_road': gw.on_road if gw else None,
+            'mean_ear': round(es.mean_EAR, 3) if es else None,
+            'phone_detected': signal_frame.phone_signal.detected,
+            'phone_conf': round(signal_frame.phone_signal.confidence, 3),
+            'gaze_secs': round(temporal_features.gaze_continuous_secs, 2),
+            'head_secs': round(temporal_features.head_continuous_secs, 2),
+            'phone_secs': round(temporal_features.phone_continuous_secs, 2),
+            'perclos': round(temporal_features.perclos, 3),
+            'composite': round(distraction_score.composite_score, 3),
+            'breaches': {
+                'gaze': distraction_score.gaze_threshold_breached,
+                'head': distraction_score.head_threshold_breached,
+                'phone': distraction_score.phone_threshold_breached,
+                'perclos': distraction_score.perclos_threshold_breached,
+                'composite': distraction_score.composite_threshold_breached,
+            },
+            'alert': alert_cmd.alert_type.value if alert_cmd else None,
+            'image': frame_name,
+        }
+        self._save_log.write(json.dumps(record) + '\n')
+        self._save_log.flush()
 
     # ── Degraded display tracking ──────────────────────────────────────────────
 

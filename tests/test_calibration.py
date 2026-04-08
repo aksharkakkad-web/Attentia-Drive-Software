@@ -49,12 +49,12 @@ class TestStableCalibration:
 # ── Test 2: Noisy calibration fails quality gate ──────────────────────────────
 
 class TestNoisyCalibration:
-    def test_yaw_std_8_fails_quality(self):
-        """Alternating yaw ±8° from mean → std=8 > 5° threshold → failed."""
+    def test_yaw_std_12_fails_quality(self):
+        """Alternating yaw ±12° from mean → std=12 > 10° threshold → failed."""
         cal = Calibration(target_duration_s=5.0, fps=30.0)
-        # Alternate 13.0 / -3.0 → mean=5.0, std=8.0
+        # Alternate 22.0 / -2.0 → mean=10.0, std=12.0
         for i in range(150):
-            yaw = 13.0 if i % 2 == 0 else -3.0
+            yaw = 22.0 if i % 2 == 0 else -2.0
             cal.feed_frame(yaw, 3.0, 0.30, True)
         assert cal.status == 'failed'
         assert cal.quality_ok is False
@@ -63,16 +63,16 @@ class TestNoisyCalibration:
         """Failed calibration returns 0.0 offsets and default 0.21 threshold."""
         cal = Calibration(target_duration_s=5.0, fps=30.0)
         for i in range(150):
-            yaw = 13.0 if i % 2 == 0 else -3.0
+            yaw = 22.0 if i % 2 == 0 else -2.0
             cal.feed_frame(yaw, 3.0, 0.30, True)
         assert cal.neutral_yaw_offset == pytest.approx(0.0)
         assert cal.close_threshold == pytest.approx(0.21)
 
     def test_noisy_pitch_fails_quality(self):
-        """Alternating pitch ±8° → std=8 > 5° → failed even if yaw is stable."""
+        """Alternating pitch ±12° → std=12 > 10° → failed even if yaw is stable."""
         cal = Calibration(target_duration_s=5.0, fps=30.0)
         for i in range(150):
-            pitch = 13.0 if i % 2 == 0 else -3.0
+            pitch = 22.0 if i % 2 == 0 else -2.0
             cal.feed_frame(5.0, pitch, 0.30, True)
         assert cal.status == 'failed'
 
@@ -214,11 +214,11 @@ class TestCalibrationDiagnostics:
         assert cal.failure_reason == 'insufficient_face_frames'
 
     def test_failure_reason_pose_std_too_high(self):
-        """Quality gate failure (std >= 5°) sets failure_reason='pose_std_too_high'."""
+        """Quality gate failure (std >= 10°) sets failure_reason='pose_std_too_high'."""
         cal = Calibration(target_duration_s=5.0, fps=30.0)
-        # Alternating yaw 13°/-3° → mean=5°, std=8° > 5° threshold
+        # Alternating yaw 22°/-2° → mean=10°, std=12° > 10° threshold
         for i in range(150):
-            yaw = 13.0 if i % 2 == 0 else -3.0
+            yaw = 22.0 if i % 2 == 0 else -2.0
             cal.feed_frame(yaw, 3.0, 0.30, True)
         assert cal.status == 'failed'
         assert cal.failure_reason == 'pose_std_too_high'

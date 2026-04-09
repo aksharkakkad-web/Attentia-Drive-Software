@@ -44,8 +44,8 @@ LANDMARK_CONFIDENCE_GATE = 0.65  # PRD §19
 
 # ─── ROAD ZONE ───────────────────────────────────────────────────────────────
 # PRD §19 — Head/gaze angles (degrees) defining the "on-road" window.
-ROAD_ZONE_YAW_MIN   = -15.0  # PRD §19
-ROAD_ZONE_YAW_MAX   = +15.0  # PRD §19
+ROAD_ZONE_YAW_MIN   = -25.0  # PRD §19 — MVP override: widened from ±15°; desk/laptop testing has uncontrolled camera geometry so casual head drifts exceed 15°. REVERT TO -15.0 for production device with fixed-mount camera.
+ROAD_ZONE_YAW_MAX   = +25.0  # PRD §19 — MVP override: see above. REVERT TO +15.0 for production.
 ROAD_ZONE_PITCH_MIN = -10.0  # PRD §19
 ROAD_ZONE_PITCH_MAX = +8.0   # PRD §19 / §2.2 — MVP override: +5° was too tight; natural seated driving reaches +7-8° pitch
 
@@ -93,13 +93,22 @@ PERCLOS_MIN_VALID_FRAMES    = 30     # PRD §19
 # ─── KALMAN FILTER (v2.0.0) ──────────────────────────────────────────────────
 # PRD §19 — Parameters for 1D constant-velocity Kalman filter on head pose and gaze.
 KALMAN_PROCESS_NOISE_Q     = 0.01  # PRD §19
-KALMAN_MEASUREMENT_NOISE_R = 4.0   # PRD §19
+KALMAN_MEASUREMENT_NOISE_R = 25.0  # PRD §19 — MVP override: raised from 4.0; MediaPipe laptop noise is ~5-10° so R=4 was under-smoothing
 KALMAN_INITIAL_COVARIANCE  = 1.0   # PRD §19
 
 # ─── GAZE TRANSFORM ──────────────────────────────────────────────────────────
 # PRD §19 — Head-to-world gaze coupling coefficients.
 GAZE_HEAD_COUPLING_ALPHA = 0.7  # PRD §19 — Yaw coupling
 GAZE_HEAD_COUPLING_BETA  = 0.7  # PRD §19 — Pitch coupling
+
+# ─── IRIS-BASED GAZE (MVP-ONLY) ──────────────────────────────────────────────
+# MVP-ONLY: Scales iris-center offset (normalized by eye width) into degrees of
+# gaze deviation, which are added on top of the Kalman-filtered head pose to
+# produce world-space gaze. Remove when the real gaze model (GAZE_MODEL_PATH)
+# replaces this path. Values chosen from MediaPipe iris geometry: a half-eye-
+# width horizontal offset corresponds to roughly 15° of eyeball rotation.
+IRIS_GAZE_YAW_SCALE_DEG   = 30.0  # MVP-ONLY: degrees per unit horizontal iris offset
+IRIS_GAZE_PITCH_SCALE_DEG = 20.0  # MVP-ONLY: degrees per unit vertical iris offset
 
 # ─── LSTM GAZE MODEL (v2.0.0) ────────────────────────────────────────────────
 # PRD §19

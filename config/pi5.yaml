@@ -1,0 +1,24 @@
+# config/pi5.yaml — PRD overlay for Raspberry Pi 5 production hardware
+#
+# Selected via: python src/main.py --mode pi5
+#
+# Applied on top of src/config_prd.py by src/config_loader.apply_prd_overlay().
+# Every key must match an existing attribute name in src/config_prd.py.
+#
+# Pi 5 mode inherits the canonical PRD values from config_prd.py unmodified.
+# This file is intentionally empty of overrides during the desk polish phase.
+#
+# When Pi bring-up begins, populate Pi-specific hardware paths and any
+# threshold adjustments discovered during on-device testing. Candidates:
+#
+#   V4L2_DEVICE:          "/dev/video0"   # OV5647 via libcamera/picamera2
+#   CAPTURE_WIDTH:        1280
+#   CAPTURE_HEIGHT:        720
+#   THERMAL_MONITOR_PATH: "/sys/class/thermal/thermal_zone0/temp"
+#   OBD2_PORT:            "/dev/ttyUSB0"  # if OBD2 dongle present
+#   GPS_PORT:             "/dev/ttyS3"
+#
+# Any value changed here during Pi bring-up must also be logged in
+# docs/DEVIATIONS.md with a new DEV-XXX entry explaining the reason.
+
+{}

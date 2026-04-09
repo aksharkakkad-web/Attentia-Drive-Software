@@ -16,6 +16,31 @@ from typing import Any, List, Optional
 import numpy as np
 
 
+# ─── Sensor contracts (platform-agnostic inputs) ────────────────────────────
+
+@dataclass
+class IMUReading:
+    """Inertial measurement reading from the IMU interface.
+
+    MVP-ONLY on Mac: StubImuSource always returns valid=False so downstream
+    logic treats the reading as absent. On Pi, Mpu6050ImuSource populates
+    all fields. Consumed by ImuSource implementations only; SignalProcessor
+    wiring is deferred (see DEV-006).
+
+    See docs/INTERFACES.md §ImuSource for the contract.
+    """
+
+    accel_x: float = 0.0         # m/s², body frame
+    accel_y: float = 0.0
+    accel_z: float = 0.0
+    gyro_x: float = 0.0          # °/s, body frame
+    gyro_y: float = 0.0
+    gyro_z: float = 0.0
+    temp_c: float = 0.0          # onboard die temperature
+    timestamp_ms: float = 0.0    # monotonic clock
+    valid: bool = False          # False on Mac stub or I2C error
+
+
 # ─── Layer 0 → Layer 1 ──────────────────────────────────────────────────────
 
 @dataclass

@@ -44,7 +44,7 @@ class FaceResult:
     face_visible: bool = False
     landmarks: Optional[np.ndarray] = None  # shape (478, 3) normalized coords
     head_pose: Optional[Tuple[float, float, float]] = None  # (pitch, yaw, roll) degrees
-    gaze_vector: Optional[Tuple[float, float, float]] = None  # (x, y, z) unit vector
+    gaze_vector: Optional[Tuple[float, float, float]] = None  # MVP: (x_norm, y_norm, 0.0) iris offset normalized by eye width. Signed; positive x = iris right of eye center.
     ear_left: Optional[float] = None
     ear_right: Optional[float] = None
     mouth_aspect_ratio: Optional[float] = None
@@ -243,10 +243,16 @@ class FaceDetector(BaseDetector):
     def _compute_gaze(
         self, landmarks_px: np.ndarray
     ) -> Optional[Tuple[float, float, float]]:
-        """Compute gaze direction from iris landmarks.
+        """Compute iris offset from eye center, normalized by eye width.
+
+        MVP: Returns signed horizontal/vertical iris offset as a fraction of
+        eye width. A value of (+0.5, 0.0, 0.0) means the iris is shifted one
+        half-eye-width to the screen's right (driver's left). This preserves
+        magnitude (unlike a unit vector) so downstream can estimate how far
+        the eye has rotated.
 
         Returns:
-            (x, y, z) unit vector or None if iris landmarks unavailable.
+            (x_norm, y_norm, 0.0) or None if iris landmarks unavailable.
         """
         if landmarks_px.shape[0] <= _RIGHT_IRIS_CENTER:
             return None
@@ -254,16 +260,22 @@ class FaceDetector(BaseDetector):
         left_iris = landmarks_px[_LEFT_IRIS_CENTER]
         right_iris = landmarks_px[_RIGHT_IRIS_CENTER]
 
-        left_eye_center = np.mean(landmarks_px[_LEFT_EYE], axis=0)
-        right_eye_center = np.mean(landmarks_px[_RIGHT_EYE], axis=0)
+        left_eye_pts = landmarks_px[_LEFT_EYE]
+        right_eye_pts = landmarks_px[_RIGHT_EYE]
+        left_eye_center = np.mean(left_eye_pts, axis=0)
+        right_eye_center = np.mean(right_eye_pts, axis=0)
+
+        # Eye width = distance between outer/inner corners (indices 0 and 3 of EAR set)
+        left_eye_width = float(np.linalg.norm(left_eye_pts[0] - left_eye_pts[3]))
+        right_eye_width = float(np.linalg.norm(right_eye_pts[0] - right_eye_pts[3]))
+        eye_width = (left_eye_width + right_eye_width) / 2.0
+        if eye_width < 1e-6:
+            return None
 
         left_offset = left_iris - left_eye_center
         right_offset = right_iris - right_eye_center
         avg_offset = (left_offset + right_offset) / 2.0
 
-        norm = np.linalg.norm(avg_offset)
-        if norm < 1e-6:
-            return (0.0, 0.0, 1.0)
-
-        unit = avg_offset / norm
-        return (float(unit[0]), float(unit[1]), float(unit[2]))
+        x_norm = float(avg_offset[0] / eye_width)
+        y_norm = float(avg_offset[1] / eye_width)
+        return (x_norm, y_norm, 0.0)

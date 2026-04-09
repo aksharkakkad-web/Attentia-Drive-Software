@@ -461,3 +461,58 @@ def load_config(config_path: str = "config.yaml") -> AppConfig:
 
     logger.info("Configuration loaded successfully")
     return app_config
+
+
+# ─── PRD overlay (two-config discipline) ────────────────────────────────────
+
+
+def apply_prd_overlay(mode: str) -> None:
+    """Overlay config/<mode>.yaml onto src.config_prd module attributes.
+
+    Must be called BEFORE any module that does `from src.config_prd import X`
+    is imported — otherwise those names bind to the pre-overlay values and
+    the override has no effect. Main() handles this ordering explicitly.
+
+    Mode is 'desk' or 'pi5'. Missing/empty files are a no-op. Every key in
+    the YAML must match an existing attribute on src.config_prd; unknown
+    keys raise ValueError loudly so typos don't silently do nothing.
+
+    See docs/INTERFACES.md §two-config discipline and .claude/rules/portability.md P-4.
+    """
+    import src.config_prd as config_prd
+
+    overlay_path = (
+        Path(__file__).resolve().parent.parent / "config" / f"{mode}.yaml"
+    )
+    if not overlay_path.exists():
+        logger.info("apply_prd_overlay: no %s.yaml, using canonical PRD values", mode)
+        return
+
+    with open(overlay_path, "r") as f:
+        raw = yaml.safe_load(f) or {}
+
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"apply_prd_overlay: {overlay_path} must contain a top-level mapping"
+        )
+
+    if not raw:
+        logger.info("apply_prd_overlay: %s mode — no overrides", mode)
+        return
+
+    applied: List[str] = []
+    for key, value in raw.items():
+        if not hasattr(config_prd, key):
+            raise ValueError(
+                f"apply_prd_overlay: {overlay_path} references unknown "
+                f"config_prd attribute '{key}'"
+            )
+        setattr(config_prd, key, value)
+        applied.append(f"{key}={value}")
+
+    logger.info(
+        "apply_prd_overlay: %s mode applied %d override(s): %s",
+        mode,
+        len(applied),
+        ", ".join(applied),
+    )

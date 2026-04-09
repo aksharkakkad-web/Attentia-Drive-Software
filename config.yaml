@@ -71,7 +71,7 @@ face_detector:
   model_type: "mediapipe"
   min_detection_confidence: 0.5
   min_tracking_confidence: 0.5
-  refine_landmarks: true
+  refine_landmarks: false     # MVP override: iris landmarks (468-477) unused in pipeline; disabling saves ~15-20ms/frame
   yaw_threshold: 25.0           # degrees off-center → "looking away"
   pitch_down_threshold: 15.0    # degrees looking down → phone/lap
   pitch_up_threshold: 10.0

@@ -14,7 +14,11 @@ from typing import List, Optional
 
 import numpy as np
 
-from src.config_prd import PHONE_CONFIDENCE_THRESHOLD
+from src.config_prd import (
+    IRIS_GAZE_PITCH_SCALE_DEG,
+    IRIS_GAZE_YAW_SCALE_DEG,
+    PHONE_CONFIDENCE_THRESHOLD,
+)
 from src.contracts import (
     FaceDetection,
     GazeOutput,
@@ -62,10 +66,21 @@ def convert_to_perception_bundle(
             pose_valid=True,
         )
 
-    # ── GazeOutput (MVP: head-pose proxy, not eye gaze) ───────────────────────
+    # ── GazeOutput (MVP: iris-derived offset in degrees; head pose added in Layer 2) ─
     gaze: Optional[GazeOutput] = None
     if visible:
-        gaze = GazeOutput(valid=True)  # combined_yaw/pitch stay 0.0 — MVP proxy
+        iris = getattr(face_result, 'gaze_vector', None)
+        if iris is not None:
+            iris_yaw_deg = float(iris[0]) * IRIS_GAZE_YAW_SCALE_DEG
+            iris_pitch_deg = float(iris[1]) * IRIS_GAZE_PITCH_SCALE_DEG
+        else:
+            iris_yaw_deg = 0.0
+            iris_pitch_deg = 0.0
+        gaze = GazeOutput(
+            combined_yaw=iris_yaw_deg,
+            combined_pitch=iris_pitch_deg,
+            valid=True,
+        )
 
     # ── MVP-ONLY: head_pose_raw and EAR ───────────────────────────────────────
     head_pose_raw = None

@@ -19,8 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import argparse
 import logging
 
-from src.pipeline.pipeline_manager_v2 import PipelineManagerV2
-
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
@@ -52,6 +50,13 @@ def parse_args() -> argparse.Namespace:
         help="Logging level (default: INFO)",
     )
     parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["desk", "pi5"],
+        default="desk",
+        help="Target mode — applies config/<mode>.yaml overlay onto PRD values (default: desk)",
+    )
+    parser.add_argument(
         "--save-frames",
         action="store_true",
         help="Save one debug frame per second + session_log.jsonl to debug_frames/<timestamp>/",
@@ -75,7 +80,16 @@ def main() -> None:
     setup_logging(args.log_level)
 
     logger = logging.getLogger(__name__)
-    logger.info("Attentia Drive starting...")
+    logger.info("Attentia Drive starting in %s mode...", args.mode)
+
+    # CRITICAL: apply PRD overlay BEFORE importing PipelineManagerV2 (and
+    # everything it pulls in). Downstream modules do `from src.config_prd
+    # import X`, which binds values at import time — overlaying after the
+    # import would be a silent no-op.
+    from src.config_loader import apply_prd_overlay
+    apply_prd_overlay(args.mode)
+
+    from src.pipeline.pipeline_manager_v2 import PipelineManagerV2
 
     pipeline = PipelineManagerV2(
         source=args.source,

@@ -63,6 +63,28 @@ All data contracts are in src/contracts.py. All thresholds are in src/config_prd
 
 13. **Ask, don't assume.** If the prompt is ambiguous, if a design decision isn't specified, if there are multiple reasonable ways to implement something, or if you're unsure about any detail — STOP and ask the user before writing code. Never fill gaps with your own assumptions. If the PRD and build plan don't specify it, ask.
 
+14. **Portability guard.** Every new file that touches hardware (camera, audio, sensor, thermal, or device-specific filesystem paths) must go through one of the four interfaces in src/pipeline/interfaces/ — FrameSource, AudioSink, ImuSource, ThermalMonitor. No direct cv2.VideoCapture, afplay subprocess, mpu6050 imports, or vcgencmd calls in logic or pipeline code. See docs/INTERFACES.md and .claude/rules/portability.md for the full contract and banned patterns.
+
+15. **Log deviations.** Any Mac-specific decision, shortcut, or workaround must be logged as a new entry in docs/DEVIATIONS.md in the same commit that introduces it. A commit that changes hardware-adjacent code without updating DEVIATIONS.md is considered incomplete. The deviations log is the spec for the Pi 5 bring-up phase — treat it as load-bearing.
+
+16. **Desk runbook before merge.** Before committing any change that affects perception, signals, scoring, alerting, or output, run docs/DESK_RUNBOOK.md end-to-end on the MacBook. Note any regression in the commit message. A change that takes a runbook step from PASS to FAIL cannot be committed until fixed.
+
+17. **Two-config discipline.** No hardcoded thresholds outside src/config_prd.py, config/desk.yaml, and config/pi5.yaml. The PRD values in config_prd.py are canonical. Desk-mode and Pi-mode overlays adjust specific values via YAML. If you find yourself wanting to tweak a number at a call site, add it to the config schema instead.
+
+## Key Phase Docs (Desk Polish)
+
+The current phase is governed by these docs, not by PRD_v2.md:
+
+- docs/DESK_MVP.md — goal, success criteria, in-scope changes, definition of done for the desk polish phase
+- docs/HARDWARE_TARGET.md — Raspberry Pi 5 + peripheral reference; the inner portability contract
+- docs/INTERFACES.md — the four portability boundary contracts (FrameSource, AudioSink, ImuSource, ThermalMonitor)
+- docs/DEVIATIONS.md — running log of Mac-specific decisions and Pi migration tasks
+- docs/DESK_RUNBOOK.md — 10-step manual acceptance test that must pass before the phase is done
+- docs/STATUS.md — current phase snapshot, measurable targets, risk register
+- .claude/rules/portability.md — banned patterns and enforcement rules for Rule 14
+
+When desk polish is complete and all runbook steps pass, control returns to docs/PRD_v2.md for the Pi 5 bring-up phase.
+
 ## Git Workflow
 - Commit to main after each phase passes all tests
 - Commit message format: phase N: description — all tests passing
@@ -71,10 +93,11 @@ All data contracts are in src/contracts.py. All thresholds are in src/config_prd
 
 ## Past Mistakes — Do Not Repeat
 - **DO NOT** build everything at once and test at the end. Build one piece, test it, confirm it works, then move on.
-- **DO NOT** use RKNN, V4L2, or any RK3568-specific code. This is a Mac MVP.
-- **DO NOT** implement threading. Single-threaded pipeline only.
-- **DO NOT** implement ThermalMonitor or WatchdogManager. Skip for MVP.
+- **DO NOT** use RK3568-specific code (RKNN, V4L2). Target production hardware is Raspberry Pi 5 — see docs/HARDWARE_TARGET.md. Current dev target is MacBook webcam — see docs/DESK_MVP.md.
+- **DO NOT** use threading in logic layers (src/logic/*). Pipeline-layer worker threads for async inference (e.g. phone detector) are allowed and expected — see .claude/rules/portability.md.
+- **DO NOT** implement thermal *logic* on Mac. The ThermalMonitor interface with a NoopThermalMonitor stub must exist from day one so the Pi implementation drops in cleanly — see docs/INTERFACES.md.
 - **DO NOT** assume models are working. If perception returns no face, downstream layers must handle it gracefully.
 - **DO NOT** create files without tests. Every new .py file in src/logic/ must have a corresponding test file.
 - **DO NOT** modify files from previous phases without running ALL tests afterward to check for regressions.
 - **DO NOT** refactor or "improve" working code unless explicitly asked. If it passes tests, leave it alone.
+- **DO NOT** make Mac-specific decisions without logging them in docs/DEVIATIONS.md in the same commit. Undocumented portability debt will destroy the Pi bring-up phase.

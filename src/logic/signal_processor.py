@@ -190,15 +190,20 @@ class SignalProcessor:
             calibration_complete=self._calibration_complete,
         )
 
-        # MVP gaze: world-space gaze = corrected head pose (PRD §5.3 MVP path).
-        # corrected_yaw/pitch are already Kalman-filtered by kf_yaw/kf_pitch above.
-        # Passing them through kf_gaze_* would double-filter the signal, roughly
-        # doubling the lag before on_road flips back after the driver recovers
-        # (~7-10 frames instead of ~3 frames from 20° back to on-road at R=4.0).
-        # kf_gaze_* stay instantiated for when the real gaze model replaces this path;
-        # at that point restore: gaze_world_yaw = kf_gaze_yaw.update(eye_gaze + 0.7*head)
-        gaze_world_yaw = corrected_yaw
-        gaze_world_pitch = corrected_pitch
+        # MVP gaze: world-space gaze = corrected head pose + iris offset (from
+        # MediaPipe iris landmarks 468/473, carried in GazeOutput.combined_*).
+        # Head pose is already Kalman-filtered above, so only the noisy iris
+        # addend goes through kf_gaze_* to avoid double-filtering the head
+        # component and doubling recovery lag. When a real gaze model replaces
+        # this, switch to: kf_gaze_yaw.update(eye_gaze_yaw + coupling * head).
+        iris_yaw_deg = 0.0
+        iris_pitch_deg = 0.0
+        if bundle.gaze is not None and bundle.gaze.valid:
+            iris_yaw_deg = self._kf_gaze_yaw.update(bundle.gaze.combined_yaw)
+            iris_pitch_deg = self._kf_gaze_pitch.update(bundle.gaze.combined_pitch)
+
+        gaze_world_yaw = corrected_yaw + iris_yaw_deg
+        gaze_world_pitch = corrected_pitch + iris_pitch_deg
 
         on_road = (
             ROAD_ZONE_YAW_MIN <= gaze_world_yaw <= ROAD_ZONE_YAW_MAX

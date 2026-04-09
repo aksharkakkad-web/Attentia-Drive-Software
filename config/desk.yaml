@@ -1,0 +1,36 @@
+# config/desk.yaml — PRD overlay for "desk" mode (MacBook webcam, ~50 cm)
+#
+# Selected via: python src/main.py --mode desk
+#
+# Applied on top of src/config_prd.py by src/config_loader.apply_prd_overlay().
+# Every key here must match an existing attribute name in src/config_prd.py —
+# unknown keys raise at startup. Values not listed here inherit the PRD default.
+#
+# Rationale for each delta is in docs/DESK_MVP.md "Desk-mode threshold deltas".
+
+# Road zone — widened for laptop camera geometry (~50 cm vs ~80 cm dash mount)
+ROAD_ZONE_YAW_MIN: -25.0
+ROAD_ZONE_YAW_MAX:  25.0
+ROAD_ZONE_PITCH_MIN: -20.0
+ROAD_ZONE_PITCH_MAX:  10.0
+
+# Alert cooldowns — 2 s for reactive demo feel. Car production uses 8 s.
+# COOLDOWN_PHONE stays at 5.0 to preserve P-01 anti-chatter behavior.
+COOLDOWN_VISUAL:      2.0
+COOLDOWN_HEAD:        2.0
+COOLDOWN_DROWSINESS:  2.0
+COOLDOWN_COMPOSITE:   2.0
+COOLDOWN_FACE_ABSENT: 2.0
+
+# Breach duration thresholds — halved vs PRD so alerts fire fast at desk.
+# T_PHONE_SECONDS stays 0.0 (instant, P-01 preserved).
+T_GAZE_SECONDS:        1.0
+T_HEAD_SECONDS:        0.75
+T_FACE_ABSENT_SECONDS: 2.5
+
+# Calibration — shorter feedback loop for iteration
+CALIBRATION_DURATION_S: 3.0
+
+# Eye-closure threshold — laptop lighting is typically worse than a car
+# interior, eyes register as more closed. Slightly looser multiplier.
+EAR_CALIBRATION_MULTIPLIER: 0.70

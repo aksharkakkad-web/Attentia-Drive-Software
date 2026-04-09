@@ -3,7 +3,8 @@
 Takes DistractionScore + signals_valid → AlertCommand | None.
 
 States: NOMINAL → PRE_ALERT → ALERTING → COOLDOWN → DEGRADED.
-Per-alert-type cooldowns. PHONE_USE ignores other types' cooldowns (P-01).
+Per-alert-type cooldowns. PHONE_USE has the highest priority and is checked
+first, but it respects its own COOLDOWN_PHONE window (P-01).
 FACE_ABSENT has independent cooldown tracking (P-03).
 No alerts in DEGRADED state (P-04).
 
@@ -111,12 +112,12 @@ class AlertStateMachine:
                 candidates.append(composite_type)
 
         # Select the highest-priority candidate not suppressed by its own cooldown.
-        # P-01 exception: PHONE_USE ignores ALL cooldowns including its own — always fires.
+        # P-01: PHONE_USE has the highest priority (first in candidates) and its
+        # cooldown is checked independently — it fires even while other alert types
+        # are in cooldown, but it respects its own COOLDOWN_PHONE window to prevent
+        # rapid-fire alerts from noisy detection.
         selected: Optional[AlertType] = None
         for alert_type in candidates:
-            if alert_type == AlertType.PHONE_USE:
-                selected = alert_type  # P-01: never check cooldown for phone
-                break
             expiry = self._cooldown_expiry.get(alert_type, 0.0)
             if now >= expiry:
                 selected = alert_type

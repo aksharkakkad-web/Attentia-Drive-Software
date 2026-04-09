@@ -236,10 +236,10 @@ class TestScoringWeights:
 
 class TestConfigValues:
     def test_road_zone_yaw_min(self):
-        assert cfg.ROAD_ZONE_YAW_MIN == pytest.approx(-15.0)
+        assert cfg.ROAD_ZONE_YAW_MIN == pytest.approx(-25.0)
 
     def test_road_zone_yaw_max(self):
-        assert cfg.ROAD_ZONE_YAW_MAX == pytest.approx(15.0)
+        assert cfg.ROAD_ZONE_YAW_MAX == pytest.approx(25.0)
 
     def test_road_zone_pitch_min(self):
         assert cfg.ROAD_ZONE_PITCH_MIN == pytest.approx(-10.0)
@@ -282,7 +282,7 @@ class TestConfigValues:
         assert cfg.KALMAN_PROCESS_NOISE_Q == pytest.approx(0.01)
 
     def test_kalman_measurement_noise(self):
-        assert cfg.KALMAN_MEASUREMENT_NOISE_R == pytest.approx(4.0)
+        assert cfg.KALMAN_MEASUREMENT_NOISE_R == pytest.approx(25.0)
 
     def test_lstm_reset_absent_frames(self):
         assert cfg.LSTM_RESET_ABSENT_FRAMES == 10

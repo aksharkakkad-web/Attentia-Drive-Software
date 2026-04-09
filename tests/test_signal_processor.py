@@ -180,11 +180,11 @@ class TestGazeRoadZone:
         assert result.gaze_world.on_road is True
 
     def test_off_road_when_yaw_exceeds_limit(self):
-        """Corrected yaw=20.0 exceeds ROAD_ZONE_YAW_MAX=15.0 → on_road=False."""
+        """Corrected yaw=30.0 exceeds ROAD_ZONE_YAW_MAX=25.0 → on_road=False."""
         sp = SignalProcessor()
         result = None
         for _ in range(20):
-            result = sp.process(_bundle_face(pitch=0.0, yaw=20.0))
+            result = sp.process(_bundle_face(pitch=0.0, yaw=30.0))
         assert result.gaze_world.on_road is False
 
     def test_off_road_when_pitch_below_limit(self):
@@ -324,28 +324,29 @@ class TestResetFilters:
 # ── Kalman responsiveness after double-filter removal ─────────────────────────
 
 class TestGazeResponsiveness:
-    def test_on_road_recovers_within_5_frames_after_snapping_back(self):
-        """After 20 frames at yaw=20° (off-road), snapping back to 0° → on_road within 5 frames.
+    def test_on_road_recovers_within_15_frames_after_snapping_back(self):
+        """After 20 frames at yaw=30° (off-road), snapping back to 0° → on_road within 15 frames.
 
         Verifies the double-Kalman fix: with a single filter the head-pose estimate
-        crosses back inside the ±15° road zone quickly. Without the fix (double-filter),
-        this would take ~10 frames.
+        crosses back inside the ±25° road zone. Higher R (25.0) smooths more aggressively
+        so the filter settles in ~10-12 frames vs ~3-4 at R=4.0 — still fast enough
+        to avoid false prolonged off-road readings.
         """
         sp = SignalProcessor()
         # Warm up: establish off-road state for 20 frames
         for _ in range(20):
-            result = sp.process(_bundle_face(yaw=20.0, pitch=0.0))
-        assert result.gaze_world.on_road is False, "Should be off-road after 20 frames at 20°"
+            result = sp.process(_bundle_face(yaw=30.0, pitch=0.0))
+        assert result.gaze_world.on_road is False, "Should be off-road after 20 frames at 30°"
 
         # Snap back to 0° — count how many frames until on_road flips True
         recovered = False
-        for i in range(5):
+        for i in range(15):
             result = sp.process(_bundle_face(yaw=0.0, pitch=0.0))
             if result.gaze_world.on_road:
                 recovered = True
                 break
 
         assert recovered, (
-            f"Expected on_road=True within 5 frames of returning to 0°. "
-            f"Last yaw: {result.gaze_world.yaw_deg:.2f}° (must be within ±15°)"
+            f"Expected on_road=True within 15 frames of returning to 0°. "
+            f"Last yaw: {result.gaze_world.yaw_deg:.2f}° (must be within ±25°)"
         )

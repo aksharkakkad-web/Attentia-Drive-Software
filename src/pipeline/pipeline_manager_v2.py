@@ -42,10 +42,19 @@ from src.logic.calibration import Calibration
 from src.logic.scoring_engine import ScoringEngine
 from src.logic.signal_processor import SignalProcessor
 from src.logic.temporal_engine import TemporalEngine
-from src.output.audio_alerter_v2 import play_alert
 from src.output.event_logger import EventLogger
 from src.pipeline.adapters import convert_to_perception_bundle
-from src.pipeline.frame_source import FrameSource
+from src.pipeline.interfaces import (
+    AfplayAudioSink,
+    AudioSink,
+    FrameSource,
+    ImuSource,
+    NoopThermalMonitor,
+    OpenCVFrameSource,
+    StubImuSource,
+    ThermalMonitor,
+)
+from src.pipeline.stage_timer import StageTimer
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +121,30 @@ class PipelineManagerV2:
         else:
             # Use config entirely (webcam or video as specified in config.yaml)
             fs_config = config.frame_source
-        self._frame_source = FrameSource(fs_config)
+        self._frame_source: FrameSource = OpenCVFrameSource(fs_config)
+        if not self._frame_source.open():
+            logger.error("Pipeline: frame source failed to open")
+
+        # ── Portability interface sinks ────────────────────────────────────────
+        # DEV-007: AfplayAudioSink wraps the existing afplay subprocess path.
+        # Day 5 replaces with SoundDeviceAudioSink (preloaded PCM + mutex).
+        self._audio_sink: AudioSink = AfplayAudioSink()
+        if not self._audio_sink.open():
+            logger.warning("Pipeline: audio sink failed to open — alerts will be silent")
+
+        # DEV-006: Mac has no IMU; StubImuSource returns valid=False.
+        # SignalProcessor wiring of IMU data is deferred — pipeline currently
+        # reads and discards so the interface is exercised end-to-end.
+        self._imu_source: ImuSource = StubImuSource()
+        if not self._imu_source.open():
+            logger.warning("Pipeline: IMU source failed to open — IMU data unavailable")
+
+        self._thermal_monitor: ThermalMonitor = NoopThermalMonitor()
+        if not self._thermal_monitor.open():
+            logger.warning("Pipeline: thermal monitor failed to open — throttling disabled")
+
+        # ── Per-stage timing instrumentation ──────────────────────────────────
+        self._stage_timer = StageTimer(report_interval_s=2.0)
 
         # ── Detectors ─────────────────────────────────────────────────────────
         # Face detection always enabled for Phase 7B — override config flag
@@ -123,14 +155,16 @@ class PipelineManagerV2:
         obj_config = config.object_detector
         obj_config.enabled = True
 
-        # YOLOv8-nano ONNX phone detector (primary — PRD §FR-1.4: every frame).
-        # frame_skip=1 forces inference on every frame regardless of config.yaml.
+        # YOLOv8-nano ONNX phone detector.
+        # PRD §FR-1.4 specifies every-frame detection; MVP override: frame_skip=2
+        # halves YOLO cost (~17ms saved/frame) with no perceptible accuracy loss
+        # on a laptop. Revert to frame_skip=1 for production RKNN deployment.
         from dataclasses import replace as _replace
         yolo_config = _replace(
             obj_config,
             model_path=YOLO_PHONE_MODEL_PATH,
             target_classes=['cell phone'],
-            frame_skip=1,
+            frame_skip=2,  # MVP override — revert to 1 for production
         )
         self._phone_detector_yolo = PhoneDetectorYolo(yolo_config)
 
@@ -169,6 +203,9 @@ class PipelineManagerV2:
         self._recovery_streak: int = 0
         self._display_degraded: bool = False
 
+        # Calibration outcome — None until calibration finishes, then 'ok'/'failed'
+        self._cal_status: Optional[str] = None
+
     # ── Public entry point ─────────────────────────────────────────────────────
 
     def run(self) -> None:
@@ -178,7 +215,10 @@ class PipelineManagerV2:
         try:
             self._loop()
         finally:
-            self._frame_source.release()
+            self._frame_source.close()
+            self._audio_sink.close()
+            self._imu_source.close()
+            self._thermal_monitor.close()
             cv2.destroyAllWindows()
             if self._save_log is not None:
                 self._save_log.close()
@@ -189,18 +229,28 @@ class PipelineManagerV2:
 
     def _loop(self) -> None:
         while True:
-            ok, frame = self._frame_source.read()
-            if not ok or frame is None:
+            with self._stage_timer.measure('capture'):
+                result = self._frame_source.read()
+            if not result.ok or result.frame is None:
                 logger.info("Frame source exhausted — stopping")
                 break
+            frame = result.frame
+
+            # Read IMU every frame; data is discarded until DEV-006 wires it
+            # into SignalProcessor. Exercising the interface prevents bit-rot.
+            with self._stage_timer.measure('imu'):
+                _ = self._imu_source.read()
 
             self._frame_id += 1
             timestamp_ns = time.monotonic_ns()
 
             try:
-                self._process_frame(frame, timestamp_ns)
+                with self._stage_timer.measure('frame_total'):
+                    self._process_frame(frame, timestamp_ns)
             except Exception:
                 logger.exception("Frame %d: unhandled exception — continuing", self._frame_id)
+
+            self._stage_timer.maybe_report()
 
             if self._display:
                 if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -209,7 +259,7 @@ class PipelineManagerV2:
     def _process_frame(self, frame: np.ndarray, timestamp_ns: int) -> None:
         # ── Detection ──────────────────────────────────────────────────────────
         face_result       = self._face_detector.detect(frame)
-        # YOLO handles phones every frame (frame_skip=1). ObjectDetector handles
+        # YOLO handles phones every other frame (frame_skip=2). ObjectDetector handles
         # all other classes (or all classes when YOLO is unavailable). No merging
         # needed — target_classes on each detector are mutually exclusive at init.
         phone_detections  = self._phone_detector_yolo.detect(frame)
@@ -266,6 +316,7 @@ class PipelineManagerV2:
                     self._calibration.neutral_pitch_offset,
                     self._calibration.baseline_ear,
                 )
+                self._cal_status = 'ok' if self._calibration.status == 'complete' else 'failed'
                 if self._calibration.status == 'failed':
                     logger.warning(
                         "Calibration failed — reason: %s | valid_frames=%d min_required=%d",
@@ -303,7 +354,7 @@ class PipelineManagerV2:
 
         # Handle alert
         if alert_cmd is not None:
-            play_alert(alert_cmd.level)
+            self._audio_sink.play(alert_cmd.alert_type, alert_cmd.level)
             self._event_logger.log_alert(alert_cmd, distraction_score)
             self._last_alert_time = time.monotonic()
             self._last_alert_cmd = alert_cmd
@@ -399,7 +450,7 @@ class PipelineManagerV2:
         cv2.rectangle(overlay, (0, 0), (w, 90), (20, 20, 20), -1)
         cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
 
-        cv2.putText(frame, 'CALIBRATING — hold still',
+        cv2.putText(frame, 'CALIBRATING - hold still',
                     (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.9, _YELLOW, 2)
         cv2.putText(frame,
                     f'Valid: {valid}/{min_valid} | Total: {total}/{expected}',
@@ -458,6 +509,14 @@ class PipelineManagerV2:
                     (10, 82), cv2.FONT_HERSHEY_SIMPLEX, 0.52, _WHITE, 1)
         cv2.putText(frame, road_str, (w - 130, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, road_col, 2)
+
+        # ── Calibration quality indicator ─────────────────────────────────────
+        if self._cal_status == 'ok':
+            cv2.putText(frame, 'CAL OK', (w - 100, 55),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, _GREEN, 1)
+        elif self._cal_status == 'failed':
+            cv2.putText(frame, 'CAL FAIL', (w - 110, 55),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, _RED, 1)
 
         # ── Timers ────────────────────────────────────────────────────────────
         timer_txt = (

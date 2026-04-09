@@ -207,14 +207,24 @@ class TestAlertStateMachine:
         assert result.level == AlertLevel.URGENT
         assert result.alert_type == AlertType.PHONE_USE
 
-    # Test 12 — P-01: phone ignores its own cooldown
-    def test_phone_fires_on_every_breach_ignores_own_cooldown(self):
-        """P-01: PHONE_USE ignores its own cooldown — fires on every breached frame."""
+    # Test 12 — P-01: phone respects its own cooldown
+    def test_phone_respects_own_cooldown(self):
+        """PHONE_USE fires on first breach, then is suppressed during COOLDOWN_PHONE."""
         asm = AlertStateMachine()
         with patch('src.logic.alert_state_machine.time.monotonic', return_value=0.0):
             r1 = asm.update(_score_phone(), signals_valid=True)
         with patch('src.logic.alert_state_machine.time.monotonic', return_value=0.5):
-            # t=0.5 is within what would be a 5s cooldown — phone fires anyway
+            # t=0.5 is within the 5s cooldown window — phone must be suppressed
+            r2 = asm.update(_score_phone(), signals_valid=True)
+        assert r1 is not None and r1.alert_type == AlertType.PHONE_USE
+        assert r2 is None  # suppressed by cooldown
+
+    def test_phone_fires_again_after_cooldown_expires(self):
+        """PHONE_USE fires again once COOLDOWN_PHONE seconds have elapsed."""
+        asm = AlertStateMachine()
+        with patch('src.logic.alert_state_machine.time.monotonic', return_value=0.0):
+            r1 = asm.update(_score_phone(), signals_valid=True)
+        with patch('src.logic.alert_state_machine.time.monotonic', return_value=5.1):
             r2 = asm.update(_score_phone(), signals_valid=True)
         assert r1 is not None and r1.alert_type == AlertType.PHONE_USE
         assert r2 is not None and r2.alert_type == AlertType.PHONE_USE
